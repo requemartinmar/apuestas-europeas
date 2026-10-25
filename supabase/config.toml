@@ -1,0 +1,2 @@
+[functions.sync-current-round]
+verify_jwt = false
