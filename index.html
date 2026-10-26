@@ -45,12 +45,12 @@
     const competitions={all:{id:'all',name:'Todas hoy'},laliga:{id:'140',name:'LaLiga'},'premier-league':{id:'39',name:'Premier League'},bundesliga:{id:'78',name:'Bundesliga'},'serie-a':{id:'135',name:'Serie A'},'champions-league':{id:'2',name:'Champions League'},'europa-league':{id:'3',name:'Europa League'},'conference-league':{id:'848',name:'Conference League'}};
     const SUPABASE_URL='https://ieqwkcznmbvewtavbpbn.supabase.co',SUPABASE_PUBLISHABLE_KEY='sb_publishable_b1DCBTU0VrJz0pAY4Gx3lg_2mpCB-ev';
     const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY),$=s=>document.querySelector(s),STORE_KEY='cancha.personal.records.v1';
+    const localDate=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`};
     const state={competition:competitions.all,rows:[],manual:readStored(),date:localDate(new Date()),demo:false};
     const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const dateLabel=v=>v?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Madrid'}).format(new Date(v)):'Hora pendiente';
     const dayOf=v=>v?new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'Europe/Madrid'}).format(new Date(v)):'';
     const dateTimeInput=v=>{const d=new Date(v),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`};
-    const localDate=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`};
     const dayBounds=day=>({from:new Date(`${day}T00:00:00`).toISOString(),to:new Date(`${day}T23:59:59.999`).toISOString()});
     const score=m=>m.goles_local==null||m.goles_visitante==null?'—':`${m.goles_local} – ${m.goles_visitante}`;
     const latestStats=m=>[...(m.estadisticas??[])].sort((a,b)=>new Date(b.capturado_at)-new Date(a.capturado_at))[0]??null;
