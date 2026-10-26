@@ -1,0 +1,8 @@
+node_modules/
+package.json
+package-lock.json
+.supabase-cli/
+supabase/.temp/
+.env
+.env.*
+!.env.example
