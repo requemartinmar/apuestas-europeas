@@ -76,3 +76,14 @@ Interpretación: separar competiciones mejora ligeramente Brier y log-loss, pero
 - La liquidación se ejecuta al consultar partidos y desde la ruta CRON de la candidata. En la base se comprobó que existe un cron cada seis horas para `sync-current-round`, pero **no existe todavía un cron programado para `quant-telegram`**. Para liquidación desatendida habrá que añadirlo después del despliegue autorizado, usando el secreto almacenado en Vault; no se ha creado ni modificado ningún cron.
 - Estado actual de los datos al revisar Supabase: `quant_prediction_log` tiene 0 filas; `partidos` tiene 299 encuentros (241 `FINISHED`, 56 `SCHEDULED`, 1 `LIVE`, 1 `NOT_PLAYED`). Por tanto, aún no hay predicciones nuevas que liquidar.
 - **No desplegado.** El código de liquidación aún debe pasar `deno check` y pruebas funcionales controladas de escritura, idempotencia y emparejamiento antes de cualquier despliegue.
+
+
+## Verificación posterior y vistas de panel (8/11/2026)
+
+- El usuario actualizó su copia local a `5015018` y ejecutó `deno check supabase/functions/quant-telegram/index.ts`; Deno 2.9.8 terminó sin errores.
+- Se revisó la correspondencia entre el registro y la liquidación: la captura usa `h2h/home|draw|away`, `totals/over_2.5` (línea 2.5) y `btts/yes`; la liquidación reconoce exactamente esas claves y selecciones.
+- Se verificaron en `public.competiciones` los IDs de football-data/API-Football usados por la liquidación: 140 LaLiga, 39 Premier League, 135 Serie A, 78 Bundesliga y 2 UEFA Champions League. La tabla de resultados utiliza `competid_id`, `fecha_utc`, `estado`, `goles_local` y `goles_visitante`; la sincronización normaliza el estado final a `FINISHED`.
+- Se crearon y consultaron tres vistas de solo lectura para el futuro panel: `quant_prediction_dashboard_summary`, `quant_prediction_dashboard_by_competition` y `quant_prediction_dashboard_by_market`. Tienen `security_invoker=true`; acceso revocado a `anon` y `authenticated`, concedido a `service_role`.
+- Las vistas se consultaron correctamente y devuelven cero predicciones, porque `quant_prediction_log` sigue vacío. Por tanto, todavía no hay porcentaje de acierto real, ROI ni liquidaciones observables.
+- No se insertaron datos ficticios, no se alteraron partidos originales, no se creó cron nuevo y no se desplegó la candidata.
+- Pendiente: prueba controlada real de escritura/idempotencia de `logModelPredictions`; prueba de liquidación sobre un registro de prueba aislado o fixture controlado; añadir cron dedicado tras autorización de despliegue; incorporar odds y combinadas/mercados de jugador si se quiere medir ROI y BOMBA REMATES.
