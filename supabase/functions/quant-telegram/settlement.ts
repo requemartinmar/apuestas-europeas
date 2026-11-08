@@ -51,3 +51,32 @@ export function evaluatePredictionOutcome(
   }
   return null;
 }
+
+
+/** Stable key for one fixture/market/selection; independent of prediction run. */
+export function buildPredictionIdempotencyKey(
+  fixture: {
+    eventId?: string | null;
+    sportKey?: string | null;
+    home: string;
+    away: string;
+    start: string;
+  },
+  marketKey: string,
+  selection: string,
+  normalize: (name: string) => string = (name) => name.trim().toLowerCase(),
+): string {
+  const kickoff = new Date(fixture.start);
+  if (!Number.isFinite(kickoff.getTime())) {
+    throw new Error("Invalid fixture kickoff time");
+  }
+  return [
+    String(fixture.eventId ?? ""),
+    String(fixture.sportKey ?? ""),
+    normalize(fixture.home),
+    normalize(fixture.away),
+    kickoff.toISOString(),
+    marketKey,
+    selection,
+  ].join("|");
+}
