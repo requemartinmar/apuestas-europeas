@@ -2,7 +2,7 @@
 // Bot Quant v4.4 — Supabase Edge Function (Webhook de Telegram)
 // ============================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { evaluatePredictionOutcome, findUniqueFixtureMatch } from "./settlement.ts";
+import { buildPredictionIdempotencyKey, evaluatePredictionOutcome, findUniqueFixtureMatch } from "./settlement.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -466,13 +466,6 @@ async function logModelPredictions(matches: any[]): Promise<void> {
   const rows: any[] = [];
   for (const m of matches) {
     const groupId = crypto.randomUUID();
-    const fixtureKey = [
-      String(m.eventId ?? ""),
-      String(m.sportKey ?? ""),
-      normalizeName(String(m.home ?? "")),
-      normalizeName(String(m.away ?? "")),
-      new Date(m.start).toISOString(),
-    ].join("|");
     const [pHome, pDraw, pAway] = m.modelProbs;
     const [pOver25, pBtts] = m.modelGoals;
     const common = {
@@ -503,7 +496,13 @@ async function logModelPredictions(matches: any[]): Promise<void> {
     for (const market of markets) {
       rows.push({
         ...common,
-        idempotency_key: [fixtureKey, market.market_key, market.selection].join("|"),
+        idempotency_key: buildPredictionIdempotencyKey({
+          eventId: m.eventId ?? null,
+          sportKey: m.sportKey ?? null,
+          home: String(m.home ?? ""),
+          away: String(m.away ?? ""),
+          start: String(m.start),
+        }, market.market_key, market.selection, normalizeName),
         market_key: market.market_key,
         selection: market.selection,
         line: market.line ?? null,
