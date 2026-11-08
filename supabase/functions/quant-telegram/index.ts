@@ -458,6 +458,63 @@ function parseEvent(ev: any, league: string, model: RollingPoisson) {
   };
 }
 
+const PREDICTION_MODEL_VERSION = "league-model-candidate-2026-11-08";
+
+async function logModelPredictions(matches: any[]): Promise<void> {
+  if (!matches.length) return;
+  const rows: any[] = [];
+  for (const m of matches) {
+    const groupId = crypto.randomUUID();
+    const fixtureKey = [
+      String(m.eventId ?? ""),
+      String(m.sportKey ?? ""),
+      normalizeName(String(m.home ?? "")),
+      normalizeName(String(m.away ?? "")),
+      new Date(m.start).toISOString(),
+    ].join("|");
+    const [pHome, pDraw, pAway] = m.modelProbs;
+    const [pOver25, pBtts] = m.modelGoals;
+    const common = {
+      prediction_group_id: groupId,
+      source: "quant-telegram",
+      model_version: PREDICTION_MODEL_VERSION,
+      sport_key: m.sportKey ?? null,
+      competition: m.league ?? null,
+      event_id: m.eventId ?? null,
+      home_team: m.home,
+      away_team: m.away,
+      commence_time: new Date(m.start).toISOString(),
+      prediction_type: "market",
+      prediction_payload: {
+        model_probs_1x2: { home: pHome, draw: pDraw, away: pAway },
+        model_goals: { over_2_5: pOver25, both_teams_to_score: pBtts },
+        expected_goals: { home: m.lambdas?.[0], away: m.lambdas?.[1] },
+        captured_from: "getTodayMatches",
+      },
+    };
+    const markets = [
+      { market_key: "h2h", selection: "home", probability: pHome },
+      { market_key: "h2h", selection: "draw", probability: pDraw },
+      { market_key: "h2h", selection: "away", probability: pAway },
+      { market_key: "totals", selection: "over_2.5", line: 2.5, probability: pOver25 },
+      { market_key: "btts", selection: "yes", probability: pBtts },
+    ];
+    for (const market of markets) {
+      rows.push({
+        ...common,
+        idempotency_key: [fixtureKey, market.market_key, market.selection].join("|"),
+        market_key: market.market_key,
+        selection: market.selection,
+        line: market.line ?? null,
+        model_probability: market.probability,
+      });
+    }
+  }
+  const { error } = await supabase.from("quant_prediction_log")
+    .upsert(rows, { onConflict: "idempotency_key", ignoreDuplicates: true });
+  if (error) throw new Error("No se pudieron registrar las predicciones: " + error.message);
+}
+
 async function getTodayMatches(buttons: string[] | null) {
   const now = new Date();
   const today = madridDate(now);
@@ -481,7 +538,14 @@ async function getTodayMatches(buttons: string[] | null) {
       return parsed;
     }).filter((m): m is any => m !== null && m.start > now && madridDate(m.start) === today);
   }));
-  return { matches: results.flat().sort((a, b) => a.start.getTime() - b.start.getTime()), errors };
+  const matches = results.flat().sort((a, b) => a.start.getTime() - b.start.getTime());
+  try {
+    await logModelPredictions(matches);
+  } catch (error) {
+    console.error("prediction_log_write_failed", error instanceof Error ? error.message : String(error));
+    errors.push("No se pudieron guardar todas las predicciones para su evaluación; revisa los registros de la función.");
+  }
+  return { matches, errors };
 }
 
 
