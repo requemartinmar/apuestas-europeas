@@ -281,7 +281,7 @@ async function fetchFixturesToday(leagueName: string): Promise<any[]> {
   const y = seasonStartYears()[2];
 
   for (const [f, league] of files) {
-    if (league !== leagueName && leagueName !== "Champions League") continue;
+    if (league !== leagueName) continue;
     const data = await fetchJson(`https://raw.githubusercontent.com/openfootball/football.json/master/${seasonLabel(y)}/${f}.json`);
     if (!data) continue;
     const list: Json[] = Array.isArray(data.matches) ? data.matches : (data.rounds ?? []).flatMap((r: Json) => r.matches ?? []);
@@ -470,7 +470,14 @@ async function getTodayMatches(buttons: string[] | null) {
     const events = await fetchEvents(key, name);
     return events.map((ev) => {
       const parsed = parseEvent(ev, name, model);
-      if (parsed) (parsed as any).sportKey = key;
+      if (!parsed) return null;
+      (parsed as any).sportKey = key;
+      if (!parsed.known) {
+        errors.push(name + ": " + parsed.home + " — " + parsed.away +
+          " omitido: histórico insuficiente o equivalencia de equipo no reconocida (mínimo " +
+          MIN_GAMES_KNOWN + " partidos por equipo).");
+        return null;
+      }
       return parsed;
     }).filter((m): m is any => m !== null && m.start > now && madridDate(m.start) === today);
   }));
