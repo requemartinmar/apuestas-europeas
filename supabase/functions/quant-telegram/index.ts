@@ -538,7 +538,11 @@ async function sendDailyTips(chatId:number|string,matches:any[]) {
 }
 async function sendDailyCombo(chatId:number|string,target:number,label:string) {
   await telegram("sendMessage",{chat_id:chatId,text:"🔎 Buscando partidos de hoy y mercados con probabilidad superior al 70%…"});
-  const {matches}=await getTodayMatches(null);
+  const {matches,errors}=await getTodayMatches(null);
+  if(!matches.length){
+    await telegram("sendMessage",{chat_id:chatId,text:"⚠️ No hay partidos analizables con histórico disponible hoy."+(errors.length?"\n\nCompeticiones omitidas:\n"+errors.join("\n"):"")});
+    return;
+  }
   await enrichComboMarkets(matches);
   const candidates=dailyCandidates(matches);
   if(!candidates.length) {
@@ -864,8 +868,8 @@ function historicalShotRates(rows:any[],teamName:string,venue:"home"|"away",metr
 }
 async function sendShotsBomb(chatId:number|string) {
   await telegram("sendMessage",{chat_id:chatId,text:"🎯 Revisando remates y remates a puerta con históricos y mercados reales disponibles…"});
-  const {matches}=await getTodayMatches(null);
-  if(!matches.length){await telegram("sendMessage",{chat_id:chatId,text:"No hay partidos próximos con los que construir el análisis de remates ahora mismo."});return;}
+  const {matches,errors}=await getTodayMatches(null);
+  if(!matches.length){await telegram("sendMessage",{chat_id:chatId,text:"No hay partidos próximos con los que construir el análisis de remates ahora mismo."+(errors.length?"\n\nCompeticiones omitidas:\n"+errors.join("\n"):"")});return;}
   const relevant=matches.filter((m:any)=>Boolean(SHOTS_HIST_LEAGUE[m.sportKey]));
   if(!relevant.length){await telegram("sendMessage",{chat_id:chatId,text:"No hay partidos de las cuatro ligas con histórico de remates disponible (LaLiga, Premier, Serie A y Bundesliga). No completaré datos de otras competiciones con promedios ajenos."});return;}
   const {data:aliases,error:aliasError}=await supabase.from("equipo_alias").select("hist_league,hist_team");
@@ -1049,7 +1053,7 @@ async function handleUpdate(update: any) {
     await telegram("sendMessage", { chat_id: chatId, text: "🔍 Analizando partidos de hoy…" });
     const { matches, errors } = await getTodayMatches(buttons);
     if (matches.length === 0) {
-      await telegram("sendMessage", { chat_id: chatId, text: "⚠️ No hay partidos programados para hoy en las ligas seleccionadas." });
+      await telegram("sendMessage", { chat_id: chatId, text: "⚠️ No hay partidos programados para hoy en las ligas seleccionadas."+(errors.length?"\n\nCompeticiones omitidas:\n"+errors.join("\n"):"") });
     } else {
       for (const m of matches) {
         await telegram("sendMessage", { chat_id: chatId, text: formatMatch(m), parse_mode: "HTML" });
