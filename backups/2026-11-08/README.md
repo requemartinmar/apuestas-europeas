@@ -24,7 +24,7 @@ Se compararon los recuentos de las 24 tablas originales y sus copias: **24/24 co
 | quant_historical_matches | 2.653 | 2.653 |
 | equipo_alias | 78 | 78 |
 
-Las copias CTAS conservan los datos y columnas, pero no replican índices, claves, políticas RLS, triggers ni secuencias. No se copiaron secretos ni valores de variables de entorno.
+Las copias CTAS conservan los datos y columnas, pero no replican índices, claves, triggers ni secuencias. Se habilitó RLS en las 24 copias y se revocó SELECT a `anon` y `authenticated` (verificado: 24/24 con RLS y cero permisos SELECT para esos roles). No se copiaron secretos ni valores de variables de entorno.
 
 ## Seguridad del cambio
 La Edge Function activa no se ha modificado ni desplegado. No se han actualizado ni eliminado filas de las tablas originales. Las copias están en el mismo proyecto Supabase, no son un backup externo del proveedor.
