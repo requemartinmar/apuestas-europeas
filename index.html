@@ -16,17 +16,91 @@
     .day-control{display:flex;align-items:center;gap:8px}.day-control button,.action-btn{border:1px solid var(--line);background:#152238;color:var(--text);border-radius:8px;padding:8px 11px}.day-control input,.personal input,.personal select,.personal textarea{background:#0d1726;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px;font:inherit}.day-control input{width:145px}.fixture{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)}.fixture-meta{grid-column:1/-1;color:var(--muted);font-size:10px}.fixture{cursor:pointer}.fixture:hover{border-color:#42617e}.personal{grid-column:1/-1}.personal-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.personal label{display:grid;gap:5px;color:var(--muted);font-size:11px}.personal .span2{grid-column:span 2}.personal .span4{grid-column:1/-1}.personal textarea{min-height:70px;resize:vertical}.personal-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}.personal-record{display:grid;grid-template-columns:1fr auto;gap:8px;padding:10px;background:#0d1726;border:1px solid #1f2c40;border-radius:9px;margin-top:8px}.personal-record small{color:var(--muted)}.upload-preview{max-width:220px;max-height:160px;display:none;border:1px solid var(--line);border-radius:8px;margin-top:9px}.today-label{display:inline-flex;align-items:center;gap:7px;color:var(--green);font-size:11px;margin-bottom:12px}.match-picker{width:100%;margin:8px 0 12px}.muted-note{color:var(--muted);font-size:11px}.fixture-league{color:var(--green);font-size:10px;grid-column:1/-1}.stats-none{color:var(--muted);font-size:10px}
     .pr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}.pr-card{background:#0d1726;border:1px solid #26364d;border-radius:12px;padding:14px;min-width:0}.pr-card header{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:11px;margin-bottom:7px}.pr-card h3{font-size:14px;margin:0 0 4px}.pr-card h3 small{color:var(--muted);font-weight:500}.pr-sample{font-size:10px;color:var(--muted);margin:0 0 9px}.pr-table{width:100%;min-width:0;border-collapse:collapse}.pr-table th,.pr-table td{padding:6px 3px;border-bottom:1px solid #ffffff10;font-size:11px}.pr-table th{text-align:left}.pr-table th:not(:first-child),.pr-table td:not(:first-child){text-align:right}.pr-value{font-weight:750;color:#e8f2ff}.pr-muted{color:var(--muted)}.pr-empty{color:var(--muted);font-size:12px;padding:12px;border:1px dashed var(--line);border-radius:9px}
     @media(max-width:700px){.personal-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.day-control{flex-wrap:wrap}.day-control input{flex:1}.personal .span4{grid-column:1/-1}}
+  
+    /* Rediseño Cancha inspirado en la arquitectura de navegación y tarjetas de Oddster */
+    :root{color-scheme:dark;--bg:#080d17;--panel:#101827;--panel2:#151f30;--line:#202d40;--muted:#8998ad;--text:#f2f5fa;--green:#b8f36b;--blue:#83a9ff;--accent:#b8f36b}
+    body{background:#080d17;color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:-.01em}
+    .shell{max-width:1440px;padding:22px 42px 64px}
+    .topbar{border:0;padding:4px 0 18px}
+    .brand{font-size:21px;letter-spacing:-.8px}.brand-mark{width:36px;height:36px;border-radius:12px;background:var(--green);color:#111b0b;font-size:21px}
+    .brand small{color:#77869b;font-size:11px;letter-spacing:.2px}
+    .source-pill{background:#101827;border-color:#26354b;border-radius:30px;padding:8px 13px}
+    .avatar{background:#1c293b;color:#dbe6f4;border:1px solid #2b3b52}
+    .product-nav{display:flex;align-items:center;gap:7px;padding:9px 0 19px;border-bottom:1px solid #1d2939;margin-bottom:24px;overflow-x:auto;scrollbar-width:none}
+    .product-nav::-webkit-scrollbar{display:none}
+    .product-nav-link{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;text-decoration:none;color:#93a1b5;font-size:13px;font-weight:650;padding:10px 15px;border-radius:9px;transition:background .18s,color .18s}
+    .product-nav-link span{font-size:15px;color:#72849c}
+    .product-nav-link:hover,.product-nav-link.is-active{background:#1a2635;color:#f3f7fc}
+    .product-nav-link.is-active span{color:var(--green)}
+    .layout{display:block;padding-top:0}.side{display:none}.main{max-width:100%;min-width:0}
+    .heading{align-items:center;margin:3px 0 23px}
+    .eyebrow{color:var(--green);font-size:10px;letter-spacing:1.7px}
+    .heading h1{font-size:clamp(29px,3vw,39px);letter-spacing:-1.5px;font-weight:780;margin:5px 0 7px}
+    .heading p{font-size:13px;color:#8d9bb0}
+    .date{font-size:10px;letter-spacing:1px;color:#75849a;line-height:1.7}
+    .date strong{font-size:14px!important;color:#e9eff8!important}
+    .leaguebar{gap:8px;padding:0 0 19px;scrollbar-width:thin}
+    .league{background:#101827;border:1px solid #202d40;border-radius:9px;padding:9px 14px;color:#9ba9bb;font-weight:620;font-size:12px;transition:.18s}
+    .league:hover{border-color:#465b70;color:#eaf1f9}
+    .league.active{background:#d2f78d;border-color:#d2f78d;color:#14200d;box-shadow:0 5px 18px #b8f36b14}
+    .grid{grid-template-columns:minmax(0,1fr) minmax(290px,.42fr);gap:17px;align-items:start}
+    .card{background:#0e1725;border:1px solid #202d40;border-radius:14px;padding:20px;box-shadow:0 12px 35px #00000012}
+    .card-title{margin-bottom:17px}
+    .card-title h2{font-size:15px;font-weight:750;letter-spacing:-.25px}
+    .subtle{font-size:11px;color:#8493a8}
+    .day-control{gap:6px}.day-control button,.action-btn{background:#172337;border:1px solid #2a3a50;border-radius:8px;padding:8px 11px;color:#dce5f1;transition:.18s}
+    .day-control button:hover,.action-btn:hover{border-color:#75925b;background:#1d2b3b}
+    .day-control input,.personal input,.personal select,.personal textarea{background:#0a1220;border:1px solid #29384d;border-radius:8px;color:#eaf0f8}
+    .today-label{color:var(--green);font-size:11px}
+    .fixture-list{gap:9px}
+    .fixture{position:relative;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px 16px;padding:17px 18px;background:#111c2c;border:1px solid #243349;border-radius:12px;transition:transform .18s,border-color .18s,background .18s}
+    .fixture:hover{transform:translateY(-1px);border-color:#526c54;background:#142133}
+    .fixture-league{font-size:9px;color:#9db77d;letter-spacing:1px;text-transform:uppercase;font-weight:750}
+    .fixture-team{font-size:13px;font-weight:700;color:#e8eef7}.fixture-team img{width:27px;height:27px}
+    .fixture-score{font-size:17px;font-weight:800;color:#f3f6fb}
+    .fixture-score small{font-size:9px;color:#8a9ab0;font-weight:550;margin-top:3px}
+    .empty{background:#0d1725;border:1px dashed #2d3c50;border-radius:12px}
+    .empty h3{font-size:15px}.empty p{color:#8b9ab0}
+    .metric-grid{gap:9px}.metric{background:#111c2c;border:1px solid #25354a;border-radius:10px;padding:13px}
+    .metric span{font-size:10px;color:#8c9bb0}.metric strong{font-size:20px;color:#eff5fc}
+    .status,.not-ready{border:1px solid #394a5d;background:#182538;color:#a9b9cd;border-radius:20px;padding:5px 9px}
+    .notice{background:#111c2b;border-color:#29394d;border-radius:10px;color:#9ba9bb}
+    .notice b{color:#e5edf7}
+    .pr-grid{grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}
+    .pr-card{background:#111c2b;border:1px solid #29394d;border-radius:12px;padding:15px;transition:border-color .18s,transform .18s}
+    .pr-card:hover{border-color:#647b51;transform:translateY(-1px)}
+    .pr-card h3{font-size:14px;letter-spacing:-.2px}
+    .pr-card header{font-size:10px;color:#91a0b4}
+    .pr-sample{margin:0 0 10px;color:#8191a6}
+    .pr-table th,.pr-table td{font-size:11px;padding:8px 3px}
+    .pr-value{color:var(--green);font-variant-numeric:tabular-nums}
+    .table-wrap{border:1px solid #25354a;border-radius:10px}
+    table{min-width:680px}th,td{padding:12px 11px}th{color:#8c9bb0}td{color:#d0d9e6}
+    .personal-grid{gap:12px}.personal label{color:#9aa8bb}.personal textarea,.personal input,.personal select{padding:10px}
+    .personal-record{background:#111c2b;border-color:#29394d;border-radius:10px}
+    .connection-message{font-size:11px}.foot{color:#64748a;border-top:1px solid #1d2939;padding-top:20px}
+    .demo-banner{border-radius:10px}
+    @media(max-width:900px){.shell{padding:18px 20px 42px}.grid{grid-template-columns:1fr}.product-nav{margin-bottom:20px}}
+    @media(max-width:600px){.shell{padding:13px 13px 34px}.topbar{padding-bottom:13px}.brand{font-size:19px}.product-nav{gap:3px;padding:7px 0 14px}.product-nav-link{padding:9px 11px;font-size:12px}.product-nav-link span{display:none}.heading{gap:10px;align-items:flex-start}.heading h1{font-size:27px}.date{text-align:left}.leaguebar{margin-right:-2px}.card{padding:14px}.card-title{align-items:flex-start;flex-direction:column}.day-control{width:100%;flex-wrap:wrap}.day-control input{flex:1;min-width:120px}.fixture{padding:14px 12px;gap:10px}.fixture-team{font-size:12px}.fixture-score{font-size:15px}.pr-grid{grid-template-columns:1fr}.personal-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
   </style>
 </head>
 <body>
   <div class="shell">
     <header class="topbar"><div class="brand"><span class="brand-mark">◉</span> Cancha <small>· análisis</small></div><div class="top-actions"><span class="source-pill" id="supabase-status"><i class="dot"></i> Comprobando Supabase…</span><div class="avatar">P</div></div></header>
+    <nav class="product-nav" aria-label="Navegación principal">
+      <a class="product-nav-link is-active" href="#calendar"><span>▦</span> Partidos</a>
+      <a class="product-nav-link" href="#predictions-card"><span>✦</span> Top 3 / Análisis</a>
+      <a class="product-nav-link" href="#stats-card"><span>▤</span> Stats</a>
+      <a class="product-nav-link" href="#leaguebar"><span>◉</span> Ligas</a>
+      <a class="product-nav-link" href="#personal-card"><span>◎</span> Cuenta</a>
+    </nav>
     <div class="layout">
       <aside class="side"><div class="side-label">ESPACIO PERSONAL</div><a class="nav active" href="#calendar"><span class="ico">▦</span> Calendario diario</a><a class="nav" href="#stats-card"><span class="ico">▤</span> Estadísticas</a><a class="nav" href="#personal-card"><span class="ico">✎</span> Añadir datos</a><a class="nav" href="#saved-card"><span class="ico">◷</span> Mis registros</a><div class="side-note"><b>Datos verificables</b>Las estadísticas ausentes se dejan en blanco. Tus apuntes manuales se guardan en este navegador.</div></aside>
       <main class="main">
         <div class="demo-banner" id="demo-banner" role="status">DEMOSTRACIÓN: estos equipos, marcador y estadísticas son ficticios. No proceden de Supabase ni de una fuente deportiva.</div>
         <div class="heading"><div><div class="eyebrow">Centro de análisis</div><h1>Fútbol europeo</h1><p>Partidos del día, resultados y estadísticas de las competiciones seguidas.</p></div><div class="date">TEMPORADA ACTUAL<br><strong id="season-label" style="color:#dce7f5;font-size:13px">2026/27</strong></div></div>
-        <div class="leaguebar" role="tablist" aria-label="Competiciones"><button class="league active" data-league="all">Todas hoy</button><button class="league" data-league="laliga"><span class="flag">🇪🇸</span>LaLiga</button><button class="league" data-league="premier-league"><span class="flag">🏴</span>Premier League</button><button class="league" data-league="bundesliga"><span class="flag">🇩🇪</span>Bundesliga</button><button class="league" data-league="serie-a"><span class="flag">🇮🇹</span>Serie A</button><button class="league" data-league="champions-league"><span class="flag">🏆</span>Champions</button><button class="league" data-league="europa-league"><span class="flag">🏆</span>Europa League</button><button class="league" data-league="conference-league"><span class="flag">🏆</span>Conference</button></div>
+        <div class="leaguebar" id="leaguebar" role="tablist" aria-label="Competiciones"><button class="league active" data-league="all">Todas hoy</button><button class="league" data-league="laliga"><span class="flag">🇪🇸</span>LaLiga</button><button class="league" data-league="premier-league"><span class="flag">🏴</span>Premier League</button><button class="league" data-league="bundesliga"><span class="flag">🇩🇪</span>Bundesliga</button><button class="league" data-league="serie-a"><span class="flag">🇮🇹</span>Serie A</button><button class="league" data-league="champions-league"><span class="flag">🏆</span>Champions</button><button class="league" data-league="europa-league"><span class="flag">🏆</span>Europa League</button><button class="league" data-league="conference-league"><span class="flag">🏆</span>Conference</button></div>
         <div class="grid">
           <section class="card" id="calendar"><div class="card-title"><div><h2 id="matchTitle">Partidos de hoy</h2><span class="subtle">Jornada diaria de las competiciones seleccionadas</span></div><div class="day-control"><button id="day-prev" aria-label="Día anterior">‹</button><input id="match-date" type="date" aria-label="Fecha de partidos"><button id="day-next" aria-label="Día siguiente">›</button><button id="day-today">Hoy</button></div></div><div class="today-label">● <span id="day-label">Hoy</span> · hora peninsular</div><div id="fixtures" class="empty"><div><div class="empty-icon">⚽</div><h3 id="connection-title">Comprobando base de datos</h3><p id="connection-description">Consultando la jornada seleccionada en Supabase.</p><span class="hint" id="connection-hint">Sin resultados ficticios · Sin cuotas inventadas</span></div></div><p id="connection-message" class="connection-message" role="status" aria-live="polite"></p></section>
           <section class="card wide" id="predictions-card"><div class="card-title"><div><h2>Predicciones y referencias estadísticas</h2><span class="subtle">Estimaciones orientativas basadas en el histórico disponible de cada competición</span></div><span class="not-ready" id="predictions-status">Calculando</span></div><div id="predicciones"><p class="muted-note">Consultando el histórico de la competición…</p></div><p class="muted-note">No son cuotas ni garantías. La referencia se calcula con partidos finalizados de la misma competición y temporada; no sustituye un modelo individual por equipos. Las métricas sin datos suficientes se muestran como —.</p></section>
@@ -133,6 +207,8 @@
     $('#match-date').value=state.date;$('#match-date').addEventListener('change',e=>{state.date=e.target.value||localDate(new Date());$('#entry-date').value=`${state.date}T12:00`;loadMatches()});$('#day-today').addEventListener('click',()=>{state.date=localDate(new Date());$('#entry-date').value=`${state.date}T12:00`;loadMatches()});for(const [id,n] of [['day-prev',-1],['day-next',1]])$(`#${id}`).addEventListener('click',()=>{const d=new Date(`${state.date}T12:00:00`);d.setDate(d.getDate()+n);state.date=localDate(d);$('#entry-date').value=`${state.date}T12:00`;loadMatches()});
     $('#entry-competition').innerHTML=Object.values(competitions).filter(c=>c.id!=='all').map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');$('#entry-date').value=`${state.date}T12:00`;
     $('#match-picker').addEventListener('change',pickMatch);$('#save-entry').addEventListener('click',saveEntry);$('#clear-entry').addEventListener('click',clearForm);$('#saved-records').addEventListener('click',e=>{const b=e.target.closest('.delete-entry');if(!b)return;state.manual=state.manual.filter(m=>m.id!==b.dataset.id);saveStored();render()});
+    const navLinks=[...document.querySelectorAll('.product-nav-link')];
+    navLinks.forEach(link=>link.addEventListener('click',()=>{navLinks.forEach(x=>x.classList.remove('is-active'));link.classList.add('is-active')}));
     loadMatches();
   </script>
 </body>
