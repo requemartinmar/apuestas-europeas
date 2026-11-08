@@ -110,7 +110,7 @@ const TEAM_ALIASES: Record<string, string> = {
   "tottenham hotspur": "tottenham", "wolverhampton wanderers": "wolves",
   "borussia dortmund": "dortmund", "borussia monchengladbach": "monchengladbach",
   "rb leipzig": "leipzig", "bayer 04 leverkusen": "leverkusen",
-  "ac milan": "milan", "inter milan": "inter",
+  "ac milan": "milan",
 };
 
 function teamKey(name: string): string {
@@ -470,7 +470,7 @@ async function getTodayMatches(buttons: string[] | null) {
     const events = await fetchEvents(key, name);
     return events.map((ev) => {
       const parsed = parseEvent(ev, name, model);
-      if (parsed) parsed.sportKey = key;
+      if (parsed) (parsed as any).sportKey = key;
       return parsed;
     }).filter((m): m is any => m !== null && m.start > now && madridDate(m.start) === today);
   }));
@@ -777,8 +777,8 @@ async function fetchTeamShotOdds(m:any):Promise<any[]> {
     const marketRes=await fetch(marketUrl,{signal:AbortSignal.timeout(FETCH_TIMEOUT_MS)});
     if(!marketRes.ok) return [];
     const marketData=await marketRes.json();
-    const keys=[...new Set((marketData?.bookmakers??[]).flatMap((b:any)=>(b.markets??[]).map((x:any)=>String(x.key??""))))]
-      .filter((k:string)=>/^(alternate_)?team_(shots|shots_on_target)(_|$)/i.test(k));
+    const keys: string[] = [...new Set<string>((marketData?.bookmakers??[]).flatMap((b:any): string[] => (b.markets??[]).map((x:any): string => String(x.key??""))))]
+      .filter((k)=>/^(alternate_)?team_(shots|shots_on_target)(_|$)/i.test(k));
     if(!keys.length){teamShotMarketCache.set(m.eventId,{at:Date.now(),books:[]});return [];}
     const oddsUrl=new URL(ODDS_URL+"/"+m.sportKey+"/events/"+m.eventId+"/odds");
     oddsUrl.searchParams.set("apiKey",ODDS_API_KEY); oddsUrl.searchParams.set("regions","eu");
@@ -807,8 +807,8 @@ async function fetchPlayerShotOdds(m:any):Promise<any[]> {
     const marketRes=await fetch(marketUrl,{signal:AbortSignal.timeout(FETCH_TIMEOUT_MS)});
     if(!marketRes.ok) return [];
     const marketData=await marketRes.json();
-    const keys=[...new Set((marketData?.bookmakers??[]).flatMap((b:any)=>(b.markets??[]).map((x:any)=>String(x.key??""))))]
-      .filter((k:string)=>/^player_shots(_alternate)?$|^player_shots_on_target(_alternate)?$/i.test(k));
+    const keys: string[] = [...new Set<string>((marketData?.bookmakers??[]).flatMap((b:any): string[] => (b.markets??[]).map((x:any): string => String(x.key??""))))]
+      .filter((k)=>/^player_shots(_alternate)?$|^player_shots_on_target(_alternate)?$/i.test(k));
     if(!keys.length){playerShotMarketCache.set(m.eventId,{at:Date.now(),books:[]});return [];}
     const oddsUrl=new URL(ODDS_URL+"/"+m.sportKey+"/events/"+m.eventId+"/odds");
     oddsUrl.searchParams.set("apiKey",ODDS_API_KEY);
