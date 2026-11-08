@@ -59,3 +59,14 @@ Interpretación: separar competiciones mejora ligeramente Brier y log-loss, pero
 2. Revisar con datos reales la cobertura de alias y qué equipos/partidos quedan omitidos por no alcanzar cinco partidos.
 3. Confirmar la disponibilidad y frescura de históricos de remates, cuotas y partidos de cada competición.
 4. Aprobar expresamente el despliegue antes de sustituir `quant-telegram`.
+
+## Registro de predicciones (implementación candidata)
+
+- Añadido `logModelPredictions()` en `index.ts`: registra cinco probabilidades por partido válido que devuelve `getTodayMatches`: local/empate/visitante, más de 2,5 goles y ambos marcan.
+- Cada fila incluye competición, `sport_key`, evento si lo proporciona The Odds API, equipos, inicio, versión del modelo, probabilidades y lambdas esperadas.
+- Captura anterior al inicio del partido; solo se procesan encuentros futuros devueltos por el proveedor.
+- Idempotencia por evento/competición/equipos/fecha + mercado/selección. Las solicitudes repetidas no duplican filas.
+- El registro se ejecuta antes de que las funciones que consumen `getTodayMatches` construyan sus respuestas. Si falla la escritura, el bot sigue respondiendo y deja un error explícito en logs y en la lista de incidencias.
+- La tabla `public.quant_prediction_log` existe en Supabase. Se verificó su esquema, RLS/privilegios en la revisión previa y se añadió un índice único no parcial para que el `upsert` por `idempotency_key` sea compatible con PostgreSQL.
+- **Alcance aún no completado:** esta versión registra los mercados principales del partido. No registra todavía las selecciones de BOMBA REMATES, combinadas ni mercados individuales de jugadores. Tampoco liquida automáticamente los resultados; eso requiere un proceso separado que obtenga marcadores/estadísticas finales verificadas.
+- **No desplegado.** La rama candidata necesita volver a pasar `deno check` después de estos cambios y pruebas controladas de escritura/idempotencia antes de cualquier despliegue.
