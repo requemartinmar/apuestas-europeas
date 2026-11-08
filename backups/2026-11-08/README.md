@@ -17,7 +17,7 @@ Fecha: 2026-11-08
 ## Base de datos
 Se creó una copia de datos de todas las tablas existentes del esquema `public`, con prefijo `backup_20261108_`. Son tablas independientes creadas como copia de columnas y filas (CTAS).
 
-Recuentos contrastados:
+Se compararon los recuentos de las 24 tablas originales y sus copias: **24/24 coinciden exactamente**. Recuentos principales:
 | Tabla original | Filas originales | Filas en copia |
 |---|---:|---:|
 | historical_matches | 3.263 | 3.263 |
