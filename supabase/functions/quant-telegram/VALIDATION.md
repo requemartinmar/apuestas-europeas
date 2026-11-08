@@ -42,16 +42,20 @@ Resultados del modelo separado:
 - I1 Serie A: 681; Brier 0,587241; log-loss 0,986872; acierto 53,30 %.
 - D1 Bundesliga: 550; Brier 0,605796; log-loss 1,014158; acierto 51,82 %.
 
-Interpretación: separar competiciones mejora ligeramente Brier y log-loss, pero reduce el acierto bruto en 0,12 puntos porcentuales. Es una mejora pequeña, no una garantía de rentabilidad. Esta prueba compara dos variantes sobre el mismo conjunto doméstico; **no es todavía una comparación directa contra la versión activa**, cuyo modelo global actual carga LaLiga + Champions desde `quant_historical_matches`.
+Interpretación: separar competiciones mejora ligeramente Brier y log-loss, pero reduce el acierto bruto en 0,12 puntos porcentuales. Es una mejora pequeña, no una garantía de rentabilidad. La comparación principal anterior sí incluye una reproducción aproximada del diseño de producción actual; no es una prueba end-to-end del webhook ni de todos sus mercados.
 
 ## Comprobaciones técnicas
 - La candidata elimina las llamadas a `getModel()` y la firma antigua de `getTodayMatches(buttons, model)`.
 - Se comprobó que existen paginación, caché por competición y exclusión explícita de competiciones sin histórico.
-- El bloque TypeScript de carga de históricos y `getTodayMatches` pasó `tsc --noEmit --strict` con stubs de dependencias. No equivale a compilar toda la Edge Function: el entorno disponible no tiene Deno, así que queda pendiente el chequeo integral con Deno.
+- La Edge Function completa pasó `deno check supabase/functions/quant-telegram/index.ts` con Deno 2.9.8 en Windows, tras corregir cuatro errores de TypeScript. Este chequeo valida tipos/imports, pero no ejecuta el webhook ni sustituye las pruebas funcionales.
 - No se ha ejecutado ningún despliegue ni se ha cambiado la función activa.
 
+## QA adicional y salvaguardas
+- Los partidos solo se devuelven con probabilidades si ambos equipos se reconocen y cada uno alcanza el mínimo de cinco partidos históricos; los encuentros sin muestra suficiente o con alias no resuelto se omiten y se informan, en vez de calcular con equipos neutrales.
+- El fallback de fixtures de OpenFootball queda limitado a la competición doméstica exacta. No reutiliza partidos de LaLiga/Premier/Serie A/Bundesliga etiquetándolos como Champions. Champions depende de sus fuentes propias; Europa League y Conference siguen omitidas al no existir histórico verificado.
+
 ## Pendiente antes de desplegar
-1. Ejecutar `deno check` sobre la Edge Function completa.
-2. Hacer una comparación adicional contra la versión de producción con la misma ventana de evaluación y el mismo tratamiento temporal, incluyendo su histórico Champions/LaLiga.
-3. Revisar muestras de equipos/alias con menos de cinco partidos y confirmar el comportamiento de las competiciones omitidas.
+1. Ejecutar pruebas funcionales controladas de las rutas de partidos, combinadas, BOMBA REMATES y errores de fuentes; `deno check` no las ejecuta.
+2. Revisar con datos reales la cobertura de alias y qué equipos/partidos quedan omitidos por no alcanzar cinco partidos.
+3. Confirmar la disponibilidad y frescura de históricos de remates, cuotas y partidos de cada competición.
 4. Aprobar expresamente el despliegue antes de sustituir `quant-telegram`.
