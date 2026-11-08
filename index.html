@@ -84,6 +84,72 @@
     @media(max-width:900px){.shell{padding:18px 20px 42px}.grid{grid-template-columns:1fr}.product-nav{margin-bottom:20px}}
     @media(max-width:600px){.shell{padding:13px 13px 34px}.topbar{padding-bottom:13px}.brand{font-size:19px}.product-nav{gap:3px;padding:7px 0 14px}.product-nav-link{padding:9px 11px;font-size:12px}.product-nav-link span{display:none}.heading{gap:10px;align-items:flex-start}.heading h1{font-size:27px}.date{text-align:left}.leaguebar{margin-right:-2px}.card{padding:14px}.card-title{align-items:flex-start;flex-direction:column}.day-control{width:100%;flex-wrap:wrap}.day-control input{flex:1;min-width:120px}.fixture{padding:14px 12px;gap:10px}.fixture-team{font-size:12px}.fixture-score{font-size:15px}.pr-grid{grid-template-columns:1fr}.personal-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
+
+    /* Experiencia móvil: navegación inferior, zonas táctiles y contenido adaptable */
+    html{scroll-behavior:smooth;scroll-padding-top:18px;scroll-padding-bottom:90px}
+    button,a,select,input{ -webkit-tap-highlight-color:transparent }
+    button,.product-nav-link,.league,.action-btn{touch-action:manipulation}
+    @media(max-width:600px){
+      body{font-size:13px;padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+      .shell{padding:10px 12px 28px;max-width:100%;overflow:hidden}
+      .topbar{position:relative;gap:8px;padding:4px 0 12px}
+      .brand{font-size:18px;gap:8px}.brand-mark{width:32px;height:32px}
+      .top-actions{gap:7px}.source-pill{max-width:36px;width:36px;height:36px;justify-content:center;padding:0;overflow:hidden;font-size:0}
+      .source-pill .dot{width:8px;height:8px;flex:0 0 8px}.avatar{width:32px;height:32px}
+      .product-nav{position:fixed;z-index:50;left:0;right:0;bottom:0;margin:0;padding:7px 5px calc(7px + env(safe-area-inset-bottom));gap:2px;justify-content:space-around;overflow:visible;background:rgba(10,16,27,.96);border-top:1px solid #29374a;border-bottom:0;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 -8px 28px #0007}
+      .product-nav-link{flex:1;min-width:0;min-height:53px;padding:5px 2px;gap:3px;display:flex;flex-direction:column;justify-content:center;align-items:center;border-radius:9px;font-size:9px;line-height:1.2;text-align:center}
+      .product-nav-link span{display:block;font-size:17px;line-height:1.2}
+      .product-nav-link.is-active{background:#1a2a25;color:var(--green)}
+      .heading{margin:7px 0 17px;gap:7px}.heading h1{font-size:25px;letter-spacing:-1px}.heading p{font-size:12px;line-height:1.45}
+      .date{font-size:9px}.date strong{font-size:12px!important}
+      .leaguebar{padding:0 0 14px;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity}
+      .league{scroll-snap-align:start;min-height:38px;padding:8px 11px;font-size:11px}
+      .grid{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+      .card{padding:13px;border-radius:12px;min-width:0}
+      .card-title{gap:9px;margin-bottom:12px}.card-title h2{font-size:14px}
+      .day-control{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;gap:6px}
+      .day-control button{min-height:42px;padding:8px;font-size:12px}
+      .day-control input{width:100%;min-width:0;min-height:42px;text-align:center}
+      .today-label{margin-bottom:9px}
+      .fixture-list{gap:7px}
+      .fixture{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:7px;padding:12px 9px;border-radius:10px}
+      .fixture-team{gap:5px;font-size:11px;min-width:0}.fixture-team img{width:21px;height:21px;flex:0 0 21px}
+      .fixture-score{font-size:14px;min-width:36px}.fixture-score small{font-size:8px}
+      .fixture-meta{font-size:9px;line-height:1.35}
+      .metric-grid{gap:7px}.metric{padding:10px}.metric span{font-size:9px}.metric strong{font-size:17px}
+      .top3-grid,.pr-grid{grid-template-columns:minmax(0,1fr);gap:9px}
+      .top3-card,.pr-card{padding:12px;border-radius:11px}
+      .top3-score{font-size:23px}.top3-stats{gap:5px}.top3-stats div{padding:7px 5px}.top3-stats span{font-size:8px}.top3-stats b{font-size:12px}
+      .pr-table{min-width:0}.pr-table th,.pr-table td{padding:7px 3px;font-size:10px}
+      .pr-table th:first-child,.pr-table td:first-child{width:68%}
+      .table-wrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+      .personal-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+      .personal label{font-size:10px;min-width:0}.personal input,.personal select,.personal textarea{width:100%;min-width:0;min-height:42px;font-size:13px;padding:9px}
+      .personal .span2{grid-column:span 2}.personal .span4{grid-column:1/-1}
+      .personal textarea{min-height:84px}
+      .personal-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+      .personal-actions button,.action-btn{min-height:42px;padding:9px 10px}
+      .personal-record{grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:9px;font-size:11px}
+      .personal-record .action-btn{align-self:center}
+      .notice{padding:11px;font-size:10px;line-height:1.45}
+      .empty{min-height:170px;padding:18px 12px}
+      .foot{font-size:9px;padding-bottom:8px}
+    }
+    @media(max-width:360px){
+      .shell{padding-left:9px;padding-right:9px}
+      .brand small{display:none}
+      .fixture{gap:5px;padding:10px 7px}
+      .fixture-team{font-size:10px}.fixture-team img{width:18px;height:18px;flex-basis:18px}
+      .fixture-score{font-size:13px;min-width:31px}
+      .personal-grid{grid-template-columns:minmax(0,1fr)}
+      .personal .span2,.personal .span4{grid-column:1/-1}
+      .product-nav-link{font-size:8px}
+    }
+    @media(hover:none){
+      .fixture:hover,.pr-card:hover{transform:none}
+      .league:hover,.day-control button:hover,.action-btn:hover{border-color:inherit;background:inherit}
+    }
+
   </style>
 </head>
 <body>
