@@ -151,70 +151,139 @@
     function competitionsById(id){return Object.values(competitions).find(c=>c.id===String(id))?.name??'Competición'}
     function refreshPicker(rows=matchesForView()){$('#match-picker').innerHTML='<option value="">Introducir equipos manualmente</option>'+rows.map(m=>`<option value="${esc(m.id)}">${esc(m.equipo_local?.nombre??m.home_name)} – ${esc(m.equipo_visitante?.nombre??m.away_name)}</option>`).join('')}
     function renderSaved(){$('#saved-count').textContent=`${state.manual.length} registro${state.manual.length===1?'':'s'}`;$('#saved-records').innerHTML=state.manual.length?state.manual.slice().reverse().map(m=>`<div class="personal-record"><div><strong>${esc(m.home_name)} – ${esc(m.away_name)}</strong><br><small>${esc(m.competition_name)} · ${esc(dateLabel(m.fecha_utc))} · ${esc(m.fuente)}</small><br><small>Posesión ${esc(pair(m.personal_stats.posesion_local,m.personal_stats.posesion_visitante,'%'))} · Tiros ${esc(pair(m.personal_stats.tiros_puerta_local,m.personal_stats.tiros_puerta_visitante))}${m.notes?` · ${esc(m.notes)}`:''}</small></div><button class="action-btn delete-entry" data-id="${esc(m.id)}">Eliminar</button></div>`).join(''):'<p class="muted-note">Todavía no has guardado registros.</p>'}
-    // Predicciones de referencia: agregados históricos reales, nunca cifras inventadas.
+    // Modelo individual por equipos: forma reciente, rendimiento local/visitante y distribución Poisson.
     let predictionRequest=0;
     const predictionMetrics=[
-      ['over_2_5_pct','Más de 2.5 goles','pct'],
       ['over_1_5_pct','Más de 1.5 goles','pct'],
+      ['over_2_5_pct','Más de 2.5 goles','pct'],
       ['btts_pct','Ambos marcan','pct'],
-      ['expected_goals','Goles totales','avg'],
-      ['expected_cards','Tarjetas','avg'],
-      ['expected_corners','Córners','avg'],
+      ['expected_goals','Goles esperados','avg'],
+      ['home_win_pct','Victoria local','pct'],
+      ['draw_pct','Empate','pct'],
+      ['away_win_pct','Victoria visitante','pct'],
+      ['expected_corners','Córners totales','avg'],
+      ['expected_cards','Tarjetas totales','avg'],
       ['expected_shots_on_target','Tiros a puerta','avg']
     ];
     const predictionNumber=(v,pct=false)=>v==null||!Number.isFinite(Number(v))?'—':pct?Math.round(Number(v))+'%':Number(v).toFixed(2);
+    const HIST_LEAGUE_BY_COMP={'39':'E0','140':'SP1','78':'D1','135':'I1'};
+    function poissonDistribution(lambda,max=10){
+      const out=[Math.exp(-lambda)];
+      for(let i=1;i<=max;i++)out[i]=out[i-1]*lambda/i;
+      return out;
+    }
+    function average(values){
+      const valid=values.filter(v=>v!=null&&Number.isFinite(Number(v))).map(Number);
+      return valid.length?valid.reduce((a,b)=>a+b,0)/valid.length:null;
+    }
+    function teamHistory(rows,team,venue,cutoff){
+      const all=rows.filter(r=>r.match_date<cutoff&&(r.home_team===team||r.away_team===team)).slice(0,12);
+      const atVenue=all.filter(r=>venue==='home'?r.home_team===team:r.away_team===team).slice(0,8);
+      const values=(source,key)=>source.map(r=>{
+        const home=r.home_team===team;
+        if(key==='gf')return home?r.home_goals:r.away_goals;
+        if(key==='ga')return home?r.away_goals:r.home_goals;
+        if(key==='corners')return home?r.home_corners:r.away_corners;
+        if(key==='sot')return home?r.home_shots_on_target:r.away_shots_on_target;
+        if(key==='cards')return home?(r.home_yellow==null&&r.home_red==null?null:Number(r.home_yellow??0)+Number(r.home_red??0)):(r.away_yellow==null&&r.away_red==null?null:Number(r.away_yellow??0)+Number(r.away_red??0));
+        return null;
+      });
+      const metric=key=>{
+        const overall=average(values(all,key)),specific=average(values(atVenue,key));
+        return specific!=null&&atVenue.length>=3&&overall!=null?specific*.7+overall*.3:specific??overall;
+      };
+      return {n:all.length,venueN:atVenue.length,gf:metric('gf'),ga:metric('ga'),corners:metric('corners'),sot:metric('sot'),cards:metric('cards')};
+    }
+    function matchModel(match,rows,aliasMap,leagueBaseline){
+      const homeAlias=aliasMap.get(String(match.equipo_local_id)),awayAlias=aliasMap.get(String(match.equipo_visitante_id));
+      if(!homeAlias||!awayAlias||homeAlias.hist_league!==awayAlias.hist_league)return null;
+      const leagueRows=rows.get(homeAlias.hist_league)||[];
+      const cutoff=String(match.fecha_utc||'').slice(0,10);
+      const home=teamHistory(leagueRows,homeAlias.hist_team,'home',cutoff);
+      const away=teamHistory(leagueRows,awayAlias.hist_team,'away',cutoff);
+      if(home.n<5||away.n<5||home.gf==null||home.ga==null||away.gf==null||away.ga==null)return null;
+      const base=leagueBaseline.get(homeAlias.hist_league)||{home:1.45,away:1.2};
+      const lambdaHome=Math.max(.15,(home.gf*.45+away.ga*.45+base.home*.10));
+      const lambdaAway=Math.max(.15,(away.gf*.45+home.ga*.45+base.away*.10));
+      const ph=poissonDistribution(lambdaHome),pa=poissonDistribution(lambdaAway);
+      let over15=0,over25=0,btts=0,homeWin=0,draw=0,awayWin=0,best={p:-1,h:0,a:0};
+      for(let h=0;h<ph.length;h++)for(let a=0;a<pa.length;a++){
+        const p=ph[h]*pa[a];
+        if(h+a>=2)over15+=p;
+        if(h+a>=3)over25+=p;
+        if(h>0&&a>0)btts+=p;
+        if(h>a)homeWin+=p;else if(h===a)draw+=p;else awayWin+=p;
+        if(p>best.p)best={p,h,a};
+      }
+      const score=(over25*.4+btts*.35+over15*.25)*100;
+      const combined=(a,b)=>a==null&&b==null?null:a==null?b:b==null?a:a+b;
+      return {
+        home,away,lambdaHome,lambdaAway,score,scoreline:best.h+'–'+best.a,
+        metrics:{
+          over_1_5_pct:over15*100,over_2_5_pct:over25*100,btts_pct:btts*100,
+          expected_goals:lambdaHome+lambdaAway,home_win_pct:homeWin*100,draw_pct:draw*100,away_win_pct:awayWin*100,
+          expected_corners:combined(home.corners,away.corners),expected_cards:combined(home.cards,away.cards),
+          expected_shots_on_target:combined(home.sot,away.sot)
+        }
+      };
+    }
     async function loadPredictions(matches){
-      const request=++predictionRequest,root=$('#predicciones'),badge=$('#predictions-status');
-      if(!matches?.length){root.innerHTML='<div class="pr-empty">No hay partidos en esta fecha para mostrar predicciones.</div>';badge.textContent='Sin partidos';$('#top3-list').innerHTML='<div class="top3-empty">No hay encuentros para analizar en esta fecha.</div>';$('#top3-status').textContent='Sin partidos';return}
-      badge.textContent='Consultando histórico';root.innerHTML='<p class="muted-note">Calculando referencias con partidos finalizados…</p>';
-      const groups=[...new Map(matches.map(m=>[String(m.competid_id)+'|'+String(m.temporada),{competitionId:String(m.competid_id),season:m.temporada,name:m.competition_name??competitionsById(m.competid_id)}])).values()];
+      const request=++predictionRequest,root=$('#predicciones'),badge=$('#predictions-status'),topRoot=$('#top3-list');
+      if(!matches?.length){root.innerHTML='<div class="pr-empty">No hay partidos en esta fecha para analizar.</div>';badge.textContent='Sin partidos';topRoot.innerHTML='<div class="top3-empty">No hay encuentros en esta fecha.</div>';$('#top3-status').textContent='Sin partidos';return}
+      badge.textContent='Analizando equipos';root.innerHTML='<p class="muted-note">Calculando forma reciente y rendimiento local/visitante…</p>';
+      topRoot.innerHTML='<p class="muted-note">Comparando los equipos con su histórico individual…</p>';
       try{
-        const histories=await Promise.all(groups.map(async g=>{
-          const {data,error}=await db.from('partidos').select('id,goles_local,goles_visitante,estadisticas_partido(tiros_puerta_local,tiros_puerta_visitante,corners_local,corners_visitante,tarjetas_amarillas_local,tarjetas_amarillas_visitante,tarjetas_rojas_local,tarjetas_rojas_visitante)').eq('competid_id',g.competitionId).eq('temporada',g.season).eq('estado','FINISHED').not('goles_local','is',null).not('goles_visitante','is',null).limit(500);
+        const providerMatches=matches.filter(m=>!m.local_record&&m.equipo_local_id!=null&&m.equipo_visitante_id!=null);
+        const teamIds=[...new Set(providerMatches.flatMap(m=>[String(m.equipo_local_id),String(m.equipo_visitante_id)]))];
+        const {data:aliases,error:aliasError}=await db.from('equipo_alias').select('equipo_id,hist_league,hist_team').in('equipo_id',teamIds);
+        if(aliasError)throw aliasError;
+        if(request!==predictionRequest)return;
+        const aliasMap=new Map((aliases??[]).map(a=>[String(a.equipo_id),a]));
+        const leagueCodes=[...new Set((aliases??[]).map(a=>a.hist_league).filter(Boolean))];
+        const dated=providerMatches.map(m=>String(m.fecha_utc||'').slice(0,10)).filter(Boolean).sort();
+        const latestDate=dated[dated.length-1]||new Date().toISOString().slice(0,10);
+        const historyResults=await Promise.all(leagueCodes.map(async code=>{
+          const {data,error}=await db.from('historical_matches')
+            .select('league_code,match_date,home_team,away_team,home_goals,away_goals,home_shots_on_target,away_shots_on_target,home_corners,away_corners,home_yellow,away_yellow,home_red,away_red')
+            .eq('league_code',code).lt('match_date',latestDate).order('match_date',{ascending:false}).limit(1500);
           if(error)throw error;
-          const valid=(data??[]).filter(x=>x.goles_local!=null&&x.goles_visitante!=null);
-          const n=valid.length,mean=fn=>{const a=valid.map(fn).filter(v=>v!=null&&Number.isFinite(Number(v))).map(Number);return a.length?a.reduce((s,v)=>s+v,0)/a.length:null};
-          const stat=m=>Array.isArray(m.estadisticas_partido)?m.estadisticas_partido[0]??null:m.estadisticas_partido??null;
-          const withStats=valid.filter(m=>stat(m));
-          const statMean=fn=>{const a=withStats.map(m=>fn(stat(m))).filter(v=>v!=null&&Number.isFinite(Number(v))).map(Number);return a.length?a.reduce((s,v)=>s+v,0)/a.length:null};
-          return {key:g.competitionId+'|'+g.season,n,metrics:{
-            over_2_5_pct:n?valid.filter(m=>Number(m.goles_local)+Number(m.goles_visitante)>2.5).length/n*100:null,
-            over_1_5_pct:n?valid.filter(m=>Number(m.goles_local)+Number(m.goles_visitante)>1.5).length/n*100:null,
-            btts_pct:n?valid.filter(m=>Number(m.goles_local)>0&&Number(m.goles_visitante)>0).length/n*100:null,
-            expected_goals:mean(m=>Number(m.goles_local)+Number(m.goles_visitante)),
-            expected_cards:statMean(s=>['tarjetas_amarillas_local','tarjetas_amarillas_visitante','tarjetas_rojas_local','tarjetas_rojas_visitante'].every(k=>s[k]==null)?null:['tarjetas_amarillas_local','tarjetas_amarillas_visitante','tarjetas_rojas_local','tarjetas_rojas_visitante'].reduce((a,k)=>a+Number(s[k]??0),0)),
-            expected_corners:statMean(s=>s.corners_local==null&&s.corners_visitante==null?null:Number(s.corners_local??0)+Number(s.corners_visitante??0)),
-            expected_shots_on_target:statMean(s=>s.tiros_puerta_local==null&&s.tiros_puerta_visitante==null?null:Number(s.tiros_puerta_local??0)+Number(s.tiros_puerta_visitante??0))
-          }};
+          return [code,data??[]];
         }));
         if(request!==predictionRequest)return;
-        const byKey=new Map(histories.map(h=>[h.key,h]));
-        const now=Date.now(),weights=[['over_2_5_pct',0.4],['btts_pct',0.35],['over_1_5_pct',0.25]];
-        const ranked=matches.filter(m=>!m.local_record&&m.estado!=='FINISHED'&&m.estado!=='LIVE'&&m.fecha_utc&&new Date(m.fecha_utc).getTime()>now).map(m=>{
-          const h=byKey.get(String(m.competid_id)+'|'+String(m.temporada));
-          if(!h||h.n<10)return null;
-          const available=weights.filter(([k])=>Number.isFinite(h.metrics[k]));
-          if(!available.length)return null;
-          const weightTotal=available.reduce((s,[,w])=>s+w,0);
-          const score=available.reduce((s,[k,w])=>s+h.metrics[k]*w,0)/weightTotal;
-          return {m,h,score};
-        }).filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,3);
-        const topRoot=$('#top3-list');
-        if(!ranked.length){topRoot.innerHTML='<div class="top3-empty">No hay próximos partidos con al menos 10 encuentros históricos disponibles en su competición y temporada. Prueba otra fecha o competición.</div>';$('#top3-status').textContent='Sin muestra suficiente';}
-        else{
-          topRoot.innerHTML='<div class="top3-grid">'+ranked.map((x,i)=>{
-            const m=x.m,home=m.equipo_local?.nombre??m.home_name??'Local',away=m.equipo_visitante?.nombre??m.away_name??'Visitante',met=x.h.metrics;
-            return '<article class="top3-card"><div class="rank">#'+(i+1)+' · SEÑAL HISTÓRICA</div><h3>'+esc(home)+' <span class="pr-muted">vs</span> '+esc(away)+'</h3><div class="meta">'+esc(m.competition_name??competitionsById(m.competid_id))+' · '+esc(dateLabel(m.fecha_utc))+'<br>'+x.h.n+' partidos finalizados en la muestra</div><div class="top3-score">'+Math.round(x.score)+'<small> / 100 · índice descriptivo</small></div><div class="top3-stats"><div><span>Over 1.5</span><b>'+predictionNumber(met.over_1_5_pct,true)+'</b></div><div><span>Over 2.5</span><b>'+predictionNumber(met.over_2_5_pct,true)+'</b></div><div><span>Ambos marcan</span><b>'+predictionNumber(met.btts_pct,true)+'</b></div></div></article>';
-          }).join('')+'</div>';
-          $('#top3-status').textContent=ranked.length+' seleccionados';
+        const historyByLeague=new Map(historyResults);
+        const leagueBaseline=new Map();
+        for(const [code,rows] of historyByLeague){
+          leagueBaseline.set(code,{home:average(rows.map(r=>r.home_goals))??1.45,away:average(rows.map(r=>r.away_goals))??1.2});
         }
-        root.innerHTML='<div class="pr-grid">'+matches.map(m=>{
-          const key=String(m.competid_id)+'|'+String(m.temporada),h=byKey.get(key),home=m.equipo_local?.nombre??m.home_name??'Local',away=m.equipo_visitante?.nombre??m.away_name??'Visitante';
-          const metrics=h?.metrics??{},rows=predictionMetrics.map(([k,label,type])=>'<tr><td>'+esc(label)+'</td><td class="pr-value">'+predictionNumber(metrics[k],type==='pct')+'</td></tr>').join('');
-          return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">'+(h?.n??0)+' partidos finalizados en el histórico de esta temporada</p><table class="pr-table"><thead><tr><th>Indicador</th><th>Media / frecuencia</th></tr></thead><tbody>'+rows+'</tbody></table></article>';
+        const analysed=matches.map(m=>({m,model:matchModel(m,historyByLeague,aliasMap,leagueBaseline)}));
+        const future=analysed.filter(x=>!x.m.local_record&&x.model&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>Date.now()).sort((a,b)=>b.model.score-a.model.score);
+        const ranked=future.slice(0,3);
+        if(!ranked.length){
+          topRoot.innerHTML='<div class="top3-empty">No hay próximos partidos con histórico individual suficiente. LaLiga, Premier League, Bundesliga y Serie A disponen de datos por equipo; otras competiciones necesitan su propio histórico y equivalencias.</div>';
+          $('#top3-status').textContent='Sin muestra suficiente';
+        }else{
+          topRoot.innerHTML='<div class="top3-grid">'+ranked.map((x,i)=>{
+            const m=x.m,p=x.model,home=m.equipo_local?.nombre??m.home_name??'Local',away=m.equipo_visitante?.nombre??m.away_name??'Visitante';
+            return '<article class="top3-card"><div class="rank">#'+(i+1)+' · MODELO POR EQUIPOS</div><h3>'+esc(home)+' <span class="pr-muted">vs</span> '+esc(away)+'</h3><div class="meta">'+esc(m.competition_name??competitionsById(m.competid_id))+' · '+esc(dateLabel(m.fecha_utc))+'<br>'+p.home.n+' partidos de '+esc(home)+' · '+p.away.n+' de '+esc(away)+'</div><div class="top3-score">'+Math.round(p.score)+'<small> / 100 · índice de goles</small></div><div class="top3-stats"><div><span>Marcador modal</span><b>'+p.scoreline+'</b></div><div><span>Goles esperados</span><b>'+predictionNumber(p.metrics.expected_goals)+'</b></div><div><span>Ambos marcan</span><b>'+predictionNumber(p.metrics.btts_pct,true)+'</b></div></div></article>';
+          }).join('')+'</div>';
+          $('#top3-status').textContent=ranked.length+' analizados';
+        }
+        root.innerHTML='<div class="pr-grid">'+analysed.map(x=>{
+          const m=x.m,p=x.model,home=m.equipo_local?.nombre??m.home_name??'Local',away=m.equipo_visitante?.nombre??m.away_name??'Visitante';
+          if(!p)return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">Sin equivalencia histórica o menos de 5 partidos válidos por equipo. No se muestran medias genéricas.</p></article>';
+          const rows=predictionMetrics.map(([k,label,type])=>'<tr><td>'+esc(label)+'</td><td class="pr-value">'+predictionNumber(p.metrics[k],type==='pct')+'</td></tr>').join('');
+          return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">'+p.home.n+' partidos recientes de '+esc(home)+' (local: '+p.home.venueN+') · '+p.away.n+' de '+esc(away)+' (visitante: '+p.away.venueN+')</p><p class="pr-sample">Goles estimados: '+predictionNumber(p.lambdaHome)+' – '+predictionNumber(p.lambdaAway)+' · Marcador modal: '+p.scoreline+'</p><table class="pr-table"><thead><tr><th>Indicador del encuentro</th><th>Estimación</th></tr></thead><tbody>'+rows+'</tbody></table></article>';
         }).join('')+'</div>';
-        const total=histories.reduce((s,h)=>s+h.n,0);badge.textContent=total?total+' partidos históricos':'Sin histórico';
-      }catch(error){if(request!==predictionRequest)return;console.error('Predicciones:',error);$('#top3-list').innerHTML='<div class="top3-empty">No se pudo calcular el Top 3. Revisa las relaciones y permisos de lectura de Supabase.</div>';$('#top3-status').textContent='No disponible';root.innerHTML='<div class="pr-empty">No se pudo consultar el histórico estadístico. Revisa las relaciones y permisos de lectura de Supabase.</div>';badge.textContent='No disponible'}
+        const total=[...historyByLeague.values()].reduce((sum,rows)=>sum+rows.length,0);
+        badge.textContent=total+' registros · forma por equipo';
+      }catch(error){
+        if(request!==predictionRequest)return;
+        console.error('Modelo por equipos:',error);
+        topRoot.innerHTML='<div class="top3-empty">No se pudo consultar el histórico individual: '+esc(error.message||'error de Supabase')+'</div>';
+        $('#top3-status').textContent='No disponible';
+        root.innerHTML='<div class="pr-empty">Error al calcular el modelo individual. Revisa los permisos de lectura de equipo_alias e historical_matches.</div>';
+        badge.textContent='No disponible';
+      }
     }
     async function loadMatches(){const badge=$('#supabase-status'),msg=$('#connection-message');$('#sync-status').textContent='Cargando';setEmpty('Cargando partidos','Leyendo los encuentros de la fecha seleccionada.');msg.textContent='';msg.classList.remove('error');try{const {data:comps,error:ce}=await db.from('competiciones').select('id,nombre,temporada_actual,activo').eq('activo',true);if(ce)throw ce;const ids=(comps??[]).map(c=>String(c.id));const season=(comps??[]).map(c=>c.temporada_actual).filter(Boolean).sort().at(-1);$('#season-label').textContent=season??'Temporada actual';const {from,to}=dayBounds(state.date);let query=db.from('partidos').select('id,competid_id,temporada,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,sincronizado_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre,escudo_url),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre,escudo_url),estadisticas:estadisticas_partido(id,posesion_local,posesion_visitante,tiros_puerta_local,tiros_puerta_visitante,corners_local,corners_visitante,tarjetas_amarillas_local,tarjetas_amarillas_visitante,tarjetas_rojas_local,tarjetas_rojas_visitante,fuente,capturado_at)').eq('temporada',season).gte('fecha_utc',from).lte('fecha_utc',to).order('fecha_utc',{ascending:true}).limit(1000);if(state.competition.id!=='all')query=query.eq('competid_id',state.competition.id);else if(ids.length)query=query.in('competid_id',ids);const {data,error}=await query;if(error)throw error;state.rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));loadPredictions(state.rows);badge.className='source-pill connected';badge.innerHTML='<i class="dot"></i> Supabase conectado';msg.textContent=`${state.rows.length} partidos de proveedor · ${state.manual.filter(m=>dayOf(m.fecha_utc)===state.date).length} registros personales`;render()}catch(error){console.error(error);state.rows=[];badge.className='source-pill error';badge.innerHTML='<i class="dot"></i> Error de conexión';msg.textContent=error.message||'Error al consultar Supabase.';msg.classList.add('error');setEmpty('No se pudieron cargar los partidos','Comprueba la conexión y las políticas de lectura de Supabase. Tus registros locales siguen disponibles.');renderSaved()}}
     function setEntry(id,value){const el=$(`#entry-${id}`);if(el)el.value=value??''}
