@@ -2,6 +2,7 @@
 // Bot Quant v4.4 — Supabase Edge Function (Webhook de Telegram)
 // ============================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { evaluatePredictionOutcome, findUniqueFixtureMatch } from "./settlement.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -600,19 +601,17 @@ async function settleModelPredictions(): Promise<PredictionSettlementSummary> {
   for (const p of eligible) {
     const competitionId = competitionBySport[String(p.sport_key)];
     const key = [competitionId, teamKey(String(p.home_team ?? "")), teamKey(String(p.away_team ?? ""))].join("|");
-    const candidates = (fixtureIndex.get(key) ?? []).filter((f: any) =>
-      Math.abs(new Date(f.fecha_utc).getTime() - new Date(p.commence_time).getTime()) <= 12 * 60 * 60 * 1000
-    );
-    if (candidates.length === 0) {
+    const fixtureMatch = findUniqueFixtureMatch(fixtureIndex.get(key) ?? [], p.commence_time);
+    if (fixtureMatch.status === "missing") {
       summary.unmatched++;
       continue;
     }
-    if (candidates.length !== 1) {
+    if (fixtureMatch.status === "ambiguous") {
       summary.ambiguous++;
       continue;
     }
 
-    const fixture = candidates[0];
+    const fixture = fixtureMatch.fixture;
     const homeScore = Number(fixture.goles_local);
     const awayScore = Number(fixture.goles_visitante);
     if (!Number.isInteger(homeScore) || !Number.isInteger(awayScore)) {
@@ -620,17 +619,13 @@ async function settleModelPredictions(): Promise<PredictionSettlementSummary> {
       continue;
     }
 
-    let actual: number | null = null;
-    if (p.market_key === "h2h") {
-      if (p.selection === "home") actual = homeScore > awayScore ? 1 : 0;
-      else if (p.selection === "draw") actual = homeScore === awayScore ? 1 : 0;
-      else if (p.selection === "away") actual = awayScore > homeScore ? 1 : 0;
-    } else if (p.market_key === "totals" && String(p.selection) === "over_2.5") {
-      const line = Number(p.line ?? 2.5);
-      actual = homeScore + awayScore > line ? 1 : 0;
-    } else if (p.market_key === "btts" && String(p.selection) === "yes") {
-      actual = homeScore > 0 && awayScore > 0 ? 1 : 0;
-    }
+    const actual = evaluatePredictionOutcome(
+      String(p.market_key ?? ""),
+      String(p.selection ?? ""),
+      p.line == null ? null : Number(p.line),
+      homeScore,
+      awayScore,
+    );
     if (actual === null) {
       summary.unsupported++;
       continue;
