@@ -1,4 +1,5 @@
 import {
+  buildPredictionIdempotencyKey,
   evaluatePredictionOutcome,
   findUniqueFixtureMatch,
 } from "./settlement.ts";
@@ -49,4 +50,39 @@ Deno.test("matching: dos candidatos dentro de tolerancia son ambiguos", () => {
     { id: 2, fecha_utc: "2026-11-08T19:00:00Z" },
   ], "2026-11-08T18:30:00Z");
   if (result.status !== "ambiguous") throw new Error("Expected ambiguous");
+});
+
+
+Deno.test("idempotencia: misma predicción genera siempre la misma clave", () => {
+  const fixture = {
+    eventId: "evt-123",
+    sportKey: "soccer_spain_la_liga",
+    home: "Real Madrid",
+    away: "Barcelona",
+    start: "2026-11-08T20:00:00+01:00",
+  };
+  const first = buildPredictionIdempotencyKey(fixture, "h2h", "home", (s) => s.toLowerCase());
+  const repeated = buildPredictionIdempotencyKey(fixture, "h2h", "home", (s) => s.toLowerCase());
+  if (first !== repeated) throw new Error("Repeated prediction must have same key");
+});
+
+Deno.test("idempotencia: mercado o selección diferente genera clave distinta", () => {
+  const fixture = {
+    eventId: "evt-123",
+    sportKey: "soccer_spain_la_liga",
+    home: "Real Madrid",
+    away: "Barcelona",
+    start: "2026-11-08T20:00:00Z",
+  };
+  const home = buildPredictionIdempotencyKey(fixture, "h2h", "home");
+  const draw = buildPredictionIdempotencyKey(fixture, "h2h", "draw");
+  const over = buildPredictionIdempotencyKey(fixture, "totals", "over_2.5");
+  if (new Set([home, draw, over]).size !== 3) throw new Error("Keys must be unique per market selection");
+});
+
+Deno.test("idempotencia: kickoff equivalente en otra zona horaria mantiene la clave", () => {
+  const base = { eventId: "evt-123", sportKey: "soccer_spain_la_liga", home: "A", away: "B" };
+  const utc = buildPredictionIdempotencyKey({ ...base, start: "2026-11-08T19:00:00Z" }, "h2h", "home");
+  const local = buildPredictionIdempotencyKey({ ...base, start: "2026-11-08T20:00:00+01:00" }, "h2h", "home");
+  if (utc !== local) throw new Error("Equivalent kickoff instants must have same key");
 });
