@@ -515,7 +515,165 @@ async function logModelPredictions(matches: any[]): Promise<void> {
   if (error) throw new Error("No se pudieron registrar las predicciones: " + error.message);
 }
 
+
+type PredictionSettlementSummary = {
+  checked: number;
+  settled: number;
+  won: number;
+  lost: number;
+  unmatched: number;
+  ambiguous: number;
+  unsupported: number;
+};
+
+async function settleModelPredictions(): Promise<PredictionSettlementSummary> {
+  const summary: PredictionSettlementSummary = {
+    checked: 0, settled: 0, won: 0, lost: 0, unmatched: 0, ambiguous: 0, unsupported: 0,
+  };
+  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const { data: pending, error: pendingError } = await supabase
+    .from("quant_prediction_log")
+    .select("id,sport_key,home_team,away_team,commence_time,market_key,selection,line")
+    .eq("result_status", "pending")
+    .lt("commence_time", cutoff)
+    .order("commence_time", { ascending: true })
+    .limit(1000);
+  if (pendingError) throw new Error("No se pudieron leer pronósticos pendientes: " + pendingError.message);
+  if (!pending?.length) return summary;
+
+  summary.checked = pending.length;
+  const competitionBySport: Record<string, string> = {
+    soccer_spain_la_liga: "140",
+    soccer_epl: "39",
+    soccer_italy_serie_a: "135",
+    soccer_germany_bundesliga: "78",
+    soccer_uefa_champs_league: "2",
+  };
+  const eligible = pending.filter((p: any) => Boolean(competitionBySport[String(p.sport_key ?? "")]));
+  summary.unsupported = pending.length - eligible.length;
+  if (!eligible.length) return summary;
+
+  const kickoffTimes = eligible
+    .map((p: any) => new Date(p.commence_time).getTime())
+    .filter((n: number) => Number.isFinite(n));
+  if (!kickoffTimes.length) return summary;
+  const marginMs = 24 * 60 * 60 * 1000;
+  const from = new Date(Math.min(...kickoffTimes) - marginMs).toISOString();
+  const to = new Date(Math.max(...kickoffTimes) + marginMs).toISOString();
+  const competitionIds = [...new Set(eligible.map((p: any) => competitionBySport[String(p.sport_key)]))];
+
+  const { data: fixtures, error: fixturesError } = await supabase
+    .from("partidos")
+    .select("id,competid_id,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,fuente")
+    .in("competid_id", competitionIds)
+    .eq("estado", "FINISHED")
+    .not("goles_local", "is", null)
+    .not("goles_visitante", "is", null)
+    .gte("fecha_utc", from)
+    .lte("fecha_utc", to)
+    .limit(2000);
+  if (fixturesError) throw new Error("No se pudieron leer resultados finalizados: " + fixturesError.message);
+  if (!fixtures?.length) {
+    summary.unmatched = eligible.length;
+    return summary;
+  }
+
+  const teamIds = [...new Set(fixtures.flatMap((f: any) => [f.equipo_local_id, f.equipo_visitante_id]))];
+  const { data: teams, error: teamsError } = await supabase
+    .from("equipos")
+    .select("id,nombre")
+    .in("id", teamIds);
+  if (teamsError) throw new Error("No se pudieron leer los nombres de los equipos: " + teamsError.message);
+  const teamNameById = new Map((teams ?? []).map((t: any) => [String(t.id), String(t.nombre ?? "")]));
+
+  const fixtureIndex = new Map<string, any[]>();
+  for (const f of fixtures) {
+    const home = teamNameById.get(String(f.equipo_local_id)) ?? "";
+    const away = teamNameById.get(String(f.equipo_visitante_id)) ?? "";
+    if (!home || !away || !f.fecha_utc) continue;
+    const key = [String(f.competid_id), teamKey(home), teamKey(away)].join("|");
+    const list = fixtureIndex.get(key) ?? [];
+    list.push({ ...f, home_name: home, away_name: away });
+    fixtureIndex.set(key, list);
+  }
+
+  for (const p of eligible) {
+    const competitionId = competitionBySport[String(p.sport_key)];
+    const key = [competitionId, teamKey(String(p.home_team ?? "")), teamKey(String(p.away_team ?? ""))].join("|");
+    const candidates = (fixtureIndex.get(key) ?? []).filter((f: any) =>
+      Math.abs(new Date(f.fecha_utc).getTime() - new Date(p.commence_time).getTime()) <= 12 * 60 * 60 * 1000
+    );
+    if (candidates.length === 0) {
+      summary.unmatched++;
+      continue;
+    }
+    if (candidates.length !== 1) {
+      summary.ambiguous++;
+      continue;
+    }
+
+    const fixture = candidates[0];
+    const homeScore = Number(fixture.goles_local);
+    const awayScore = Number(fixture.goles_visitante);
+    if (!Number.isInteger(homeScore) || !Number.isInteger(awayScore)) {
+      summary.unmatched++;
+      continue;
+    }
+
+    let actual: number | null = null;
+    if (p.market_key === "h2h") {
+      if (p.selection === "home") actual = homeScore > awayScore ? 1 : 0;
+      else if (p.selection === "draw") actual = homeScore === awayScore ? 1 : 0;
+      else if (p.selection === "away") actual = awayScore > homeScore ? 1 : 0;
+    } else if (p.market_key === "totals" && String(p.selection) === "over_2.5") {
+      const line = Number(p.line ?? 2.5);
+      actual = homeScore + awayScore > line ? 1 : 0;
+    } else if (p.market_key === "btts" && String(p.selection) === "yes") {
+      actual = homeScore > 0 && awayScore > 0 ? 1 : 0;
+    }
+    if (actual === null) {
+      summary.unsupported++;
+      continue;
+    }
+
+    const outcome = actual === 1;
+    const { error: updateError } = await supabase
+      .from("quant_prediction_log")
+      .update({
+        result_status: outcome ? "won" : "lost",
+        settled_at: new Date().toISOString(),
+        home_score: homeScore,
+        away_score: awayScore,
+        actual_value: actual,
+        outcome,
+        settlement_source: String(fixture.fuente ?? "football-data.org"),
+        settlement_payload: {
+          provider: String(fixture.fuente ?? "football-data.org"),
+          match_id: fixture.id,
+          competition_id: fixture.competid_id,
+          kickoff_utc: fixture.fecha_utc,
+          home_team_verified: fixture.home_name,
+          away_team_verified: fixture.away_name,
+          status: fixture.estado,
+        },
+      })
+      .eq("id", p.id)
+      .eq("result_status", "pending");
+    if (updateError) throw new Error("Error liquidando pronóstico " + p.id + ": " + updateError.message);
+    summary.settled++;
+    if (outcome) summary.won++;
+    else summary.lost++;
+  }
+  return summary;
+}
+
 async function getTodayMatches(buttons: string[] | null) {
+  try {
+    const settlement = await settleModelPredictions();
+    if (settlement.settled > 0) console.info("prediction_log_settlement", settlement);
+  } catch (error) {
+    console.error("prediction_log_settlement_failed", error instanceof Error ? error.message : String(error));
+  }
   const now = new Date();
   const today = madridDate(now);
   const targets = (buttons ?? Object.keys(LEAGUES)).filter((b) => Object.hasOwn(LEAGUES, b));
@@ -1141,9 +1299,14 @@ Deno.serve(async (req) => {
   const cronSecretHeader = req.headers.get("x-cron-secret");
   if (CRON_SECRET && cronSecretHeader === CRON_SECRET) {
     try {
-      return new Response(JSON.stringify({ ok: true, source: "cron" }), { headers: { "Content-Type": "application/json" } });
+      const settlement = await settleModelPredictions();
+      console.info("prediction_log_cron_settlement", settlement);
+      return new Response(JSON.stringify({ ok: true, source: "cron", settlement }), {
+        headers: { "Content-Type": "application/json" },
+      });
     } catch (e) {
-      return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+      console.error("prediction_log_cron_settlement_failed", e instanceof Error ? e.stack ?? e.message : String(e));
+      return new Response(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }), { status: 500 });
     }
   }
 
