@@ -38,7 +38,7 @@ export function evaluatePredictionOutcome(
     if (selection === "away") return awayScore > homeScore ? 1 : 0;
     return null;
   }
-  if (marketKey === "totals" && /^over_\\d+(?:\\.\\d+)?$/.test(selection)) {
+  if (marketKey === "totals" && /^over_\d+(?:\.\d+)?$/.test(selection)) {
     const selectionLine = Number(selection.slice("over_".length));
     const effectiveLine = line ?? selectionLine;
     if (!Number.isFinite(effectiveLine) || effectiveLine < 0 || Math.abs(effectiveLine - selectionLine) > 1e-9) {
