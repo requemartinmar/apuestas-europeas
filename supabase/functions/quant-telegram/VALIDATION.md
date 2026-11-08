@@ -25,12 +25,16 @@ Fecha: 2026-11-08
 - Normalización de equipos: `teamKey` de la Edge Function (incluye los mismos países, stop tokens y alias).
 
 ## Resultados
-Comparación de un modelo global que mezcla las cuatro ligas domésticas frente a un modelo independiente por liga:
+**Comparación principal: arquitectura activa frente a candidata.** La referencia reproduce el diseño actual: un solo modelo cargado desde los 2.653 registros de `quant_historical_matches` (LaLiga + Champions) y reutilizado para los 2.581 partidos domésticos de evaluación. La candidata usa los históricos domésticos de cada competición y LaLiga fusionada.
 
-| Variante | N | Brier 1X2 ↓ | Log-loss ↓ | Acierto 1X2 |
-|---|---:|---:|---:|---:|
-| Global, cuatro ligas mezcladas | 2.581 | 0,596304 | 1,000174 | 52,00 % |
-| Separado por competición | 2.581 | **0,595187** | **0,997851** | 51,88 % |
+| Variante | Histórico de entrenamiento | N evaluado | Brier 1X2 ↓ | Log-loss ↓ | Acierto 1X2 |
+|---|---|---:|---:|---:|---:|
+| Arquitectura actual (un modelo Quant compartido) | 2.653 LaLiga + Champions | 2.581 | 0,627079 | 1,042243 | 46,18 % |
+| **Candidata (modelo por liga)** | **4.402 domésticos, sin mezclar competiciones** | **2.581** | **0,595187** | **0,997851** | **51,88 %** |
+
+La candidata reduce el Brier en 0,031892 y el log-loss en 0,044391, y mejora el acierto en 5,70 puntos porcentuales en esta evaluación. La mejora procede principalmente de que deja de aplicar el mismo modelo LaLiga/Champions a Premier, Serie A y Bundesliga, y añade sus históricos reales.
+
+Como control adicional, al comparar un modelo global que mezcla las cuatro ligas domésticas con modelos separados, los resultados fueron Brier 0,596304 / log-loss 1,000174 / acierto 52,00 % para el global, frente a Brier 0,595187 / log-loss 0,997851 / acierto 51,88 % para los separados. Esa diferencia entre ambos enfoques es pequeña; la mejora principal es frente al diseño activo que carece de históricos domésticos para tres ligas.
 
 Resultados del modelo separado:
 - E0 Premier: 662 partidos; Brier 0,609366; log-loss 1,015812; acierto 49,24 %.
