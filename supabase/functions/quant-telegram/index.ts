@@ -1264,8 +1264,12 @@ async function handleUpdate(update: any) {
   if (text === "/cancha" || text === "⚽ Cancha") { await cancha(chatId,"menu"); return; }
   if (text === "/top3" || text === "🏆 Top 3 Cancha") { await cancha(chatId,"top3"); return; }
   if (text === "/remates" || text === "🎯 BOMBA REMATES") { await sendShotsBomb(chatId); return; }
-  if (text.startsWith("/buscar")) { await cancha(chatId,"search",text.replace(/^\/buscar\s*/i,"")); return; }
-  if (text === "🔎 Buscar partido") { await telegram("sendMessage",{chat_id:chatId,text:"Escribe /buscar seguido del nombre del equipo. Ejemplo: /buscar Real Madrid"}); return; }
+  if (text === "🔎 Buscar partido" || text === "🔍 Buscar Equipo") { await telegram("sendMessage",{chat_id:chatId,text:"Escribe /buscar seguido del nombre del equipo. Ejemplo: /buscar Real Madrid"}); return; }
+  if (text.startsWith("/buscar")) {
+    const term = text.replace(/^\/buscar\s*/i,"").trim();
+    if (!term) { await telegram("sendMessage",{chat_id:chatId,text:"Indica el equipo que quieres buscar. Ejemplo: /buscar Real Madrid"}); return; }
+    await cancha(chatId,"search",term); return;
+  }
 
   if (Object.hasOwn(TIERS,text)) {
     const [tierLabel,targetOdds]=TIERS[text];
