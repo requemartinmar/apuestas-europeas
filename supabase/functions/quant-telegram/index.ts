@@ -1348,6 +1348,7 @@ async function handleUpdate(update: any) {
     const { matches, errors } = await getTodayMatches(buttons);
     if (matches.length === 0) {
       await telegram("sendMessage", { chat_id: chatId, text: "⚠️ No hay partidos programados para hoy en las ligas seleccionadas."+(errors.length?"\n\nCompeticiones omitidas:\n"+errors.join("\n"):"") });
+      if (buttons === null) await sendUpcomingFixtures(chatId);
     } else {
       for (const m of matches) {
         await telegram("sendMessage", { chat_id: chatId, text: formatMatch(m), parse_mode: "HTML" });
