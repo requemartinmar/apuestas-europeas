@@ -23,12 +23,12 @@ function esc(value: unknown): string {
     .replace(/>/g, "&gt;");
 }
 
-export function formatUpcomingFixtures(
+export function formatUpcomingFixturesMessages(
   data: UpcomingFixture[],
   now: Date,
   lookaheadDays = 21,
-  limit = 20,
-): string {
+  maxMessageChars = 3500,
+): string[] {
   const today = madridDate(now);
   const end = now.getTime() + lookaheadDays * 24 * 60 * 60 * 1000;
 
@@ -44,11 +44,12 @@ export function formatUpcomingFixtures(
     })
     .sort((a, b) =>
       new Date(a.fecha_utc).getTime() - new Date(b.fecha_utc).getTime()
-    )
-    .slice(0, limit);
+    );
 
   if (!fixtures.length) {
-    return `📅 No hay próximos partidos registrados en el calendario durante los siguientes ${lookaheadDays} días.`;
+    return [
+      `📅 No hay próximos partidos registrados en el calendario durante los siguientes ${lookaheadDays} días.`,
+    ];
   }
 
   const dateFmt = new Intl.DateTimeFormat("es-ES", {
@@ -72,7 +73,24 @@ export function formatUpcomingFixtures(
       "\n⚽ <b>" + esc(home) + " — " + esc(away) + "</b>";
   });
 
-  return "📅 <b>PRÓXIMOS PARTIDOS · " + lookaheadDays +
-    " DÍAS</b>\nCalendario verificado; sin probabilidades cuando no hay histórico suficiente.\n\n" +
-    lines.join("\n\n");
+  const header = "📅 <b>PRÓXIMOS PARTIDOS · " + lookaheadDays +
+    " DÍAS</b>\nCalendario verificado; sin probabilidades cuando no hay histórico suficiente.\n\n";
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const line of lines) {
+    const candidate = current ? current + "\n\n" + line : line;
+    if (header.length + candidate.length > maxMessageChars && current) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+
+  return chunks.map((chunk, index) => {
+    const page = chunks.length > 1 ? ` (${index + 1}/${chunks.length})` : "";
+    return header.replace("</b>", page + "</b>") + chunk;
+  });
 }
