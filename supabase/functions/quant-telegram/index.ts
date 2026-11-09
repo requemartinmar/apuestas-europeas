@@ -666,25 +666,36 @@ async function settleModelPredictions(): Promise<PredictionSettlementSummary> {
 async function sendUpcomingFixtures(chatId: number | string): Promise<void> {
   const now = new Date();
   const window = getCanchaWindow(now);
-  const { data, error } = await supabase
-    .from("partidos")
-    .select("fecha_utc,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)")
-    .gt("fecha_utc", now.toISOString())
-    .lte("fecha_utc", window.end)
-    .order("fecha_utc", { ascending: true })
-    .limit(100);
+  const PAGE_SIZE = 1000;
+  const data: any[] = [];
+  let offset = 0;
 
-  if (error) {
-    console.error("upcoming_fixtures_query_failed", error.message);
-    await telegram("sendMessage", {
-      chat_id: chatId,
-      text: "⚠️ No he podido consultar el calendario de próximos partidos.",
-    });
-    return;
+  while (true) {
+    const { data: page, error } = await supabase
+      .from("partidos")
+      .select("fecha_utc,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)")
+      .gt("fecha_utc", now.toISOString())
+      .lte("fecha_utc", window.end)
+      .order("fecha_utc", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error("upcoming_fixtures_query_failed", error.message);
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "⚠️ No he podido consultar el calendario de próximos partidos.",
+      });
+      return;
+    }
+
+    const rows = page ?? [];
+    data.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
   }
 
   const messages = formatUpcomingFixturesMessages(
-    data ?? [],
+    data,
     now,
     CANCHA_LOOKAHEAD_DAYS,
   );
