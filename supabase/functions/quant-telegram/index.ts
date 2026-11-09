@@ -4,7 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildPredictionIdempotencyKey, evaluatePredictionOutcome, findUniqueFixtureMatch } from "./settlement.ts";
 import { CANCHA_LOOKAHEAD_DAYS, buildNoUpcomingCanchaMessage, getCanchaWindow } from "./cancha-window.ts";
-import { formatUpcomingFixtures } from "./upcoming-fixtures.ts";
+import { formatUpcomingFixturesMessages } from "./upcoming-fixtures.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -683,18 +683,19 @@ async function sendUpcomingFixtures(chatId: number | string): Promise<void> {
     return;
   }
 
-  const message = formatUpcomingFixtures(
+  const messages = formatUpcomingFixturesMessages(
     data ?? [],
     now,
     CANCHA_LOOKAHEAD_DAYS,
-    20,
   );
 
-  await telegram("sendMessage", {
-    chat_id: chatId,
-    parse_mode: "HTML",
-    text: message,
-  });
+  for (const message of messages) {
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      parse_mode: "HTML",
+      text: message,
+    });
+  }
 }
 
 async function getTodayMatches(buttons: string[] | null) {
