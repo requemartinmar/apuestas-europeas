@@ -1,8 +1,15 @@
+type RelatedName = { nombre?: string } | { nombre?: string }[];
+
 export interface UpcomingFixture {
   fecha_utc: string;
-  equipo_local?: { nombre?: string };
-  equipo_visitante?: { nombre?: string };
-  competicion?: { nombre?: string };
+  equipo_local?: RelatedName;
+  equipo_visitante?: RelatedName;
+  competicion?: RelatedName;
+}
+
+function relationName(value?: RelatedName): string {
+  const relation = Array.isArray(value) ? value[0] : value;
+  return String(relation?.nombre ?? "");
 }
 
 function madridDate(date: Date): string {
@@ -32,8 +39,8 @@ export function formatUpcomingFixtures(
         kickoff.getTime() > now.getTime() &&
         kickoff.getTime() <= end &&
         madridDate(kickoff) !== today &&
-        String(match.equipo_local?.nombre ?? "").trim() &&
-        String(match.equipo_visitante?.nombre ?? "").trim();
+        relationName(match.equipo_local).trim() &&
+        relationName(match.equipo_visitante).trim();
     })
     .sort((a, b) =>
       new Date(a.fecha_utc).getTime() - new Date(b.fecha_utc).getTime()
@@ -56,9 +63,9 @@ export function formatUpcomingFixtures(
 
   const lines = fixtures.map((match) => {
     const kickoff = new Date(match.fecha_utc);
-    const competition = String(match.competicion?.nombre ?? "Competición");
-    const home = String(match.equipo_local?.nombre ?? "Local");
-    const away = String(match.equipo_visitante?.nombre ?? "Visitante");
+    const competition = relationName(match.competicion) || "Competición";
+    const home = relationName(match.equipo_local) || "Local";
+    const away = relationName(match.equipo_visitante) || "Visitante";
 
     return "🏆 <b>" + esc(competition) + "</b> · " +
       esc(dateFmt.format(kickoff)) +
