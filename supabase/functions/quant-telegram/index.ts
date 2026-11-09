@@ -3,6 +3,8 @@
 // ============================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildPredictionIdempotencyKey, evaluatePredictionOutcome, findUniqueFixtureMatch } from "./settlement.ts";
+import { CANCHA_LOOKAHEAD_DAYS, buildNoUpcomingCanchaMessage, getCanchaWindow } from "./cancha-window.ts";
+import { formatUpcomingFixturesMessages } from "./upcoming-fixtures.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -661,6 +663,53 @@ async function settleModelPredictions(): Promise<PredictionSettlementSummary> {
   return summary;
 }
 
+async function sendUpcomingFixtures(chatId: number | string): Promise<void> {
+  const now = new Date();
+  const window = getCanchaWindow(now);
+  const PAGE_SIZE = 1000;
+  const data: any[] = [];
+  let offset = 0;
+
+  while (true) {
+    const { data: page, error } = await supabase
+      .from("partidos")
+      .select("fecha_utc,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)")
+      .gt("fecha_utc", now.toISOString())
+      .lte("fecha_utc", window.end)
+      .order("fecha_utc", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error("upcoming_fixtures_query_failed", error.message);
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "⚠️ No he podido consultar el calendario de próximos partidos.",
+      });
+      return;
+    }
+
+    const rows = page ?? [];
+    data.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+
+  const messages = formatUpcomingFixturesMessages(
+    data,
+    now,
+    CANCHA_LOOKAHEAD_DAYS,
+  );
+
+  for (const message of messages) {
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      parse_mode: "HTML",
+      text: message,
+    });
+  }
+}
+
 async function getTodayMatches(buttons: string[] | null) {
   try {
     const settlement = await settleModelPredictions();
@@ -927,9 +976,9 @@ async function getModelForSport(sportKey:string):Promise<RollingPoisson|null>{
 function mean(v:any[]):number|null{const a=v.filter(x=>x!=null&&Number.isFinite(Number(x))).map(Number);return a.length?a.reduce((x,y)=>x+y,0)/a.length:null;}
 function pois(l:number):number[]{const p=[Math.exp(-l)];for(let i=1;i<=10;i++)p[i]=p[i-1]*l/i;return p;}
 async function cancha(chatId:number|string,mode:"menu"|"top3"|"search",term=""){
- const now=new Date(),end=new Date(now.getTime()+10*86400000);
- const {data:ms,error:me}=await supabase.from("partidos").select("id,fecha_utc,equipo_local_id,equipo_visitante_id,competid_id,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)").gte("fecha_utc",now.toISOString()).lte("fecha_utc",end.toISOString()).order("fecha_utc",{ascending:true}).limit(200);
- if(me)throw new Error("Cancha partidos: "+me.message);if(!ms?.length){await telegram("sendMessage",{chat_id:chatId,text:"No hay partidos próximos en Cancha."});return;}
+ const now=new Date(),window=getCanchaWindow(now);
+ const {data:ms,error:me}=await supabase.from("partidos").select("id,fecha_utc,equipo_local_id,equipo_visitante_id,competid_id,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)").gte("fecha_utc",window.start).lte("fecha_utc",window.end).order("fecha_utc",{ascending:true}).limit(200);
+ if(me)throw new Error("Cancha partidos: "+me.message);if(!ms?.length){await telegram("sendMessage",{chat_id:chatId,text:buildNoUpcomingCanchaMessage()});return;}
  const ids=[...new Set(ms.flatMap((m:any)=>[String(m.equipo_local_id),String(m.equipo_visitante_id)]))];
  const {data:als,error:ae}=await supabase.from("equipo_alias").select("equipo_id,hist_league,hist_team").in("equipo_id",ids);if(ae)throw new Error("Cancha equivalencias: "+ae.message);
  const amap=new Map((als??[]).map((a:any)=>[String(a.equipo_id),a]));const codes=[...new Set((als??[]).map((a:any)=>a.hist_league).filter(Boolean))];
@@ -971,7 +1020,8 @@ async function cancha(chatId:number|string,mode:"menu"|"top3"|"search",term=""){
    "📈 Índice orientativo: <b>"+x.score.toFixed(1)+"/100</b>"
   ].join("\n");
  }).join("\n\n━━━━━━━━━━━━━━\n\n");
- await telegram("sendMessage",{chat_id:chatId,text:(mode==="top3"?"🏆 <b>TOP 3 CANCHA</b>":"⚽ <b>CANCHA · PARTIDOS PRÓXIMOS</b>")+"\n\n"+msg+"\n\n<i>Datos históricos y estimaciones orientativas; no son garantías ni recomendaciones de apuesta.</i>",parse_mode:"HTML"});
+ const heading=mode==="top3"?`🏆 <b>TOP 3 CANCHA · ${CANCHA_LOOKAHEAD_DAYS} DÍAS</b>`:mode==="search"?`🔎 <b>CANCHA · BÚSQUEDA (${CANCHA_LOOKAHEAD_DAYS} DÍAS)</b>`:`⚽ <b>CANCHA · PRÓXIMOS ${CANCHA_LOOKAHEAD_DAYS} DÍAS</b>`;
+ await telegram("sendMessage",{chat_id:chatId,text:heading+"\n\n"+msg+"\n\n<i>Datos históricos y estimaciones orientativas; no son garantías ni recomendaciones de apuesta.</i>",parse_mode:"HTML"});
 }
 
 
@@ -1262,8 +1312,12 @@ async function handleUpdate(update: any) {
   if (text === "/cancha" || text === "⚽ Cancha") { await cancha(chatId,"menu"); return; }
   if (text === "/top3" || text === "🏆 Top 3 Cancha") { await cancha(chatId,"top3"); return; }
   if (text === "/remates" || text === "🎯 BOMBA REMATES") { await sendShotsBomb(chatId); return; }
-  if (text.startsWith("/buscar")) { await cancha(chatId,"search",text.replace(/^\/buscar\s*/i,"")); return; }
-  if (text === "🔎 Buscar partido") { await telegram("sendMessage",{chat_id:chatId,text:"Escribe /buscar seguido del nombre del equipo. Ejemplo: /buscar Real Madrid"}); return; }
+  if (text === "🔎 Buscar partido" || text === "🔍 Buscar Equipo") { await telegram("sendMessage",{chat_id:chatId,text:"Escribe /buscar seguido del nombre del equipo. Ejemplo: /buscar Real Madrid"}); return; }
+  if (text.startsWith("/buscar")) {
+    const term = text.replace(/^\/buscar\s*/i,"").trim();
+    if (!term) { await telegram("sendMessage",{chat_id:chatId,text:"Indica el equipo que quieres buscar. Ejemplo: /buscar Real Madrid"}); return; }
+    await cancha(chatId,"search",term); return;
+  }
 
   if (Object.hasOwn(TIERS,text)) {
     const [tierLabel,targetOdds]=TIERS[text];
@@ -1277,6 +1331,7 @@ async function handleUpdate(update: any) {
     const { matches, errors } = await getTodayMatches(buttons);
     if (matches.length === 0) {
       await telegram("sendMessage", { chat_id: chatId, text: "⚠️ No hay partidos programados para hoy en las ligas seleccionadas."+(errors.length?"\n\nCompeticiones omitidas:\n"+errors.join("\n"):"") });
+      if (buttons === null) await sendUpcomingFixtures(chatId);
     } else {
       for (const m of matches) {
         await telegram("sendMessage", { chat_id: chatId, text: formatMatch(m), parse_mode: "HTML" });
