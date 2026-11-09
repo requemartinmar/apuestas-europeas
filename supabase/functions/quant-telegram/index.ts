@@ -4,6 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildPredictionIdempotencyKey, evaluatePredictionOutcome, findUniqueFixtureMatch } from "./settlement.ts";
 import { CANCHA_LOOKAHEAD_DAYS, buildNoUpcomingCanchaMessage, getCanchaWindow } from "./cancha-window.ts";
+import { formatUpcomingFixtures } from "./upcoming-fixtures.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -664,7 +665,6 @@ async function settleModelPredictions(): Promise<PredictionSettlementSummary> {
 
 async function sendUpcomingFixtures(chatId: number | string): Promise<void> {
   const now = new Date();
-  const today = madridDate(now);
   const window = getCanchaWindow(now);
   const { data, error } = await supabase
     .from("partidos")
@@ -678,52 +678,22 @@ async function sendUpcomingFixtures(chatId: number | string): Promise<void> {
     console.error("upcoming_fixtures_query_failed", error.message);
     await telegram("sendMessage", {
       chat_id: chatId,
-      text: "⚠️ No he podido consultar el calendario de próximos partidos. El servicio de calendario ha devuelto un error.",
+      text: "⚠️ No he podido consultar el calendario de próximos partidos.",
     });
     return;
   }
 
-  const fixtures = (data ?? []).filter((m: any) => {
-    const kickoff = new Date(m.fecha_utc);
-    return Number.isFinite(kickoff.getTime()) &&
-      madridDate(kickoff) !== today &&
-      String(m.equipo_local?.nombre ?? "").trim() &&
-      String(m.equipo_visitante?.nombre ?? "").trim();
-  }).slice(0, 20);
-
-  if (!fixtures.length) {
-    await telegram("sendMessage", {
-      chat_id: chatId,
-      text: "📅 No hay próximos partidos registrados en el calendario durante los siguientes " +
-        CANCHA_LOOKAHEAD_DAYS + " días.",
-    });
-    return;
-  }
-
-  const dateFmt = new Intl.DateTimeFormat("es-ES", {
-    timeZone: TZ,
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-  const lines = fixtures.map((m: any) => {
-    const kickoff = new Date(m.fecha_utc);
-    const competition = String(m.competicion?.nombre ?? "Competición");
-    const home = String(m.equipo_local?.nombre ?? "Local");
-    const away = String(m.equipo_visitante?.nombre ?? "Visitante");
-    return "🏆 <b>" + esc(competition) + "</b> · " + esc(dateFmt.format(kickoff)) +
-      "\n⚽ <b>" + esc(home) + " — " + esc(away) + "</b>";
-  });
+  const message = formatUpcomingFixtures(
+    data ?? [],
+    now,
+    CANCHA_LOOKAHEAD_DAYS,
+    20,
+  );
 
   await telegram("sendMessage", {
     chat_id: chatId,
     parse_mode: "HTML",
-    text: "📅 <b>PRÓXIMOS PARTIDOS · " + CANCHA_LOOKAHEAD_DAYS + " DÍAS</b>\n" +
-      "Calendario verificado; sin probabilidades cuando no hay histórico suficiente.\n\n" +
-      lines.join("\n\n"),
+    text: message,
   });
 }
 
