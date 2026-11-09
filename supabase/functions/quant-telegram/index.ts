@@ -1017,7 +1017,7 @@ async function cancha(chatId:number|string,mode:"menu"|"top3"|"search",term=""){
    "Córners (local / visitante): "+fmt(x.h.corner)+" / "+fmt(x.a.corner),
    "Tarjetas (local / visitante): "+fmt(x.h.card)+" / "+fmt(x.a.card),
    "📚 Muestra: "+x.h.n+" partidos local · "+x.a.n+" partidos visitante",
-   "📈 Índice orientativo: <b>"+x.score.toFixed(1)+"/100</b>"
+   "📈 Índice de selección (no es probabilidad): <b>"+x.score.toFixed(1)+"/100</b>"
   ].join("\n");
  }).join("\n\n━━━━━━━━━━━━━━\n\n");
  const heading=mode==="top3"?`🏆 <b>TOP 3 CANCHA · ${CANCHA_LOOKAHEAD_DAYS} DÍAS</b>`:mode==="search"?`🔎 <b>CANCHA · BÚSQUEDA (${CANCHA_LOOKAHEAD_DAYS} DÍAS)</b>`:`⚽ <b>CANCHA · PRÓXIMOS ${CANCHA_LOOKAHEAD_DAYS} DÍAS</b>`;
