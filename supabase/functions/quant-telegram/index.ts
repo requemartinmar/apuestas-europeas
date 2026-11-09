@@ -677,6 +677,7 @@ async function sendUpcomingFixtures(chatId: number | string): Promise<void> {
       .gt("fecha_utc", now.toISOString())
       .lte("fecha_utc", window.end)
       .order("fecha_utc", { ascending: true })
+      .order("id", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);
 
     if (error) {
