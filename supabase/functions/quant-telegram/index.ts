@@ -1016,7 +1016,7 @@ async function cancha(chatId:number|string,mode:"menu"|"top3"|"search",term=""){
    "Remates a puerta (local / visitante): "+fmt(x.h.sot)+" / "+fmt(x.a.sot),
    "Córners (local / visitante): "+fmt(x.h.corner)+" / "+fmt(x.a.corner),
    "Tarjetas (local / visitante): "+fmt(x.h.card)+" / "+fmt(x.a.card),
-   "📚 Muestra: "+x.h.n+" partidos local · "+x.a.n+" partidos visitante",
+   "📚 Muestra: "+x.h.n+" partidos recientes del equipo local · "+x.a.n+" partidos recientes del equipo visitante",
    "📈 Índice de selección (no es probabilidad): <b>"+x.score.toFixed(1)+"/100</b>"
   ].join("\n");
  }).join("\n\n━━━━━━━━━━━━━━\n\n");
