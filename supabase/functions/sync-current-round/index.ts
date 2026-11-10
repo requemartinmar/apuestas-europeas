@@ -333,7 +333,7 @@ async function syncConferenceLeague(db: Db, year: number, from: string, to: stri
   if (countError) throw countError;
   return {
     competicion: "UEFA Conference League",
-    estado: fixturesSeen > 0 ? "SUCCESS" : "NO_FIXTURES",
+    estado: fixturesSeen === 0 ? "NO_FIXTURES" : historyOutcomes.some((item) => item.estado === "FAILED") ? "PARTIAL" : "SUCCESS",
     partidos_vistos: fixturesSeen,
     partidos_guardados: saved,
     fuente_calendario: calendarSource,
@@ -432,7 +432,7 @@ Deno.serve(async (request) => {
     if (europaError) outcomes.push({ competicion: "3", estado: "FAILED", error: europaError.message });
     else outcomes.push({ competicion: "3", estado: "UNAVAILABLE_FREE_TIER" });
 
-    const partial = outcomes.some((item) => item.estado === "FAILED");
+    const partial = outcomes.some((item) => item.estado === "FAILED" || item.estado === "PARTIAL");
     const totals = outcomes.reduce<{ vistos: number; guardados: number }>((sum, item) => ({
       vistos: sum.vistos + Number(item.partidos_vistos ?? 0),
       guardados: sum.guardados + Number(item.partidos_guardados ?? 0),
