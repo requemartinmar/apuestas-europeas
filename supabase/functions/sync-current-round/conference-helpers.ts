@@ -14,7 +14,7 @@ export function stableHash(value: string): number {
 
 /** Open-matchday documenta date en UTC y time con offset fijo UTC+1 (convención CET-1), también en verano. */
 export function openMatchdayTimeToUtc(date: string, time: string): string {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !/^\\d{2}:\\d{2}$/.test(time)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
     throw new Error("Fecha u hora de Open-matchday inválida");
   }
   const [year, month, day] = date.split("-").map(Number);
