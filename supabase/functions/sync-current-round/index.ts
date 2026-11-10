@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { MAX_API_FOOTBALL_PAGES, conferenceFixtureHash, conferenceHistoricalId, openMatchdayTimeToUtc, stableHash } from "./conference-helpers.ts";
+import { MAX_API_FOOTBALL_PAGES, conferenceFixtureHash, conferenceHistoricalId, conferenceNamespacedId, openMatchdayTimeToUtc, stableHash } from "./conference-helpers.ts";
 
 // El cliente usa el esquema público sin tipos generados; evita que ReturnType
 // colapse las tablas a never al reutilizarlo en helpers.
@@ -19,6 +19,9 @@ const COMPETITIONS = [
 // Namespaced IDs prevent collisions with records created by the old API-Football adapter.
 const MATCH_ID_OFFSET = 8_000_000_000_000_000;
 const TEAM_ID_OFFSET = 7_000_000_000_000_000;
+// Conference usa un subrango separado de los IDs originales del proveedor.
+const CONFERENCE_ID_GAP = 1_000_000_000_000;
+const CONFERENCE_TEAM_ID_OFFSET = TEAM_ID_OFFSET + CONFERENCE_ID_GAP;
 type Team = { id: number; name: string; shortName?: string | null; tla?: string | null; crest?: string | null };
 type Match = {
   id: number;
@@ -68,8 +71,8 @@ async function fetchMatches(code: string, year: number, token: string, from: str
   return body.matches ?? [];
 }
 
-async function upsertTeam(db: Db, team: Team, competitionId: string, season: string) {
-  const id = internalId(TEAM_ID_OFFSET, team.id);
+async function upsertTeam(db: Db, team: Team, competitionId: string, season: string, idOffset = TEAM_ID_OFFSET) {
+  const id = internalId(idOffset, team.id);
   const { error } = await db.from("equipos").upsert({
     id,
     nombre: team.name,
@@ -177,12 +180,12 @@ async function saveConferenceFixture(db: Db, match: ApiFixture, year: number) {
   const season = seasonLabel(year);
   const homeTeam: Team = { ...match.teams.home, id: stableHash("team|" + match.teams.home.name) };
   const awayTeam: Team = { ...match.teams.away, id: stableHash("team|" + match.teams.away.name) };
-  const homeId = await upsertTeam(db, homeTeam, competitionId, season);
-  const awayId = await upsertTeam(db, awayTeam, competitionId, season);
+  const homeId = await upsertTeam(db, homeTeam, competitionId, season, CONFERENCE_TEAM_ID_OFFSET);
+  const awayId = await upsertTeam(db, awayTeam, competitionId, season, CONFERENCE_TEAM_ID_OFFSET);
   const state = apiFixtureStatus(match.fixture.status.short);
   const stableMatchId = conferenceFixtureHash(season, match.fixture.date.slice(0, 10), match.teams.home.name, match.teams.away.name);
   const { error } = await db.from("partidos").upsert({
-    id: internalId(MATCH_ID_OFFSET, stableMatchId),
+    id: conferenceNamespacedId(MATCH_ID_OFFSET, stableMatchId),
     competid_id: competitionId,
     temporada: season,
     jornada: 0,
@@ -238,7 +241,7 @@ async function saveOpenMatchdayConferenceFixture(
   const homeId = await upsertTeam(db, homeTeam, competitionId, season);
   const awayId = await upsertTeam(db, awayTeam, competitionId, season);
   const kickoff = openMatchdayTimeToUtc(match.date, match.time);
-  const id = internalId(MATCH_ID_OFFSET, conferenceFixtureHash(season, match.date, match.home, match.away));
+  const id = conferenceNamespacedId(MATCH_ID_OFFSET, conferenceFixtureHash(season, match.date, match.home, match.away));
   const { error } = await db.from("partidos").upsert({
     id, competid_id: competitionId, temporada: season, jornada: match.round,
     jornada_nombre: "Jornada " + match.round, fecha_utc: kickoff,
