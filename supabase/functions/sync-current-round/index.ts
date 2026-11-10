@@ -234,7 +234,7 @@ async function saveOpenMatchdayConferenceFixture(
   const awayTeam: Team = { id: stableHash("team|" + match.away), name: match.away };
   const homeId = await upsertTeam(db, homeTeam, competitionId, season);
   const awayId = await upsertTeam(db, awayTeam, competitionId, season);
-  openMatchdayTimeToUtc(match.date, match.time);
+  const kickoff = openMatchdayTimeToUtc(match.date, match.time);
   const id = internalId(MATCH_ID_OFFSET, stableHash(["match", season, match.home, match.away].join("|")));
   const { error } = await db.from("partidos").upsert({
     id, competid_id: competitionId, temporada: season, jornada: match.round,
