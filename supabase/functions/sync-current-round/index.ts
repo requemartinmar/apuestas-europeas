@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-/** Resultados reales de football-data.org Free; no ofrece estadísticas de partido. */
+/** Sincroniza ligas de football-data.org y Conference League mediante fuentes alternativas. */
 const PROVIDER = "football-data.org";
 const API_ROOT = "https://api.football-data.org/v4";
 // IDs internos conservados para que el frontend existente siga funcionando.
