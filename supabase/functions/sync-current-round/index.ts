@@ -177,7 +177,7 @@ async function saveConferenceFixture(db: Db, match: ApiFixture, year: number) {
   const homeId = await upsertTeam(db, homeTeam, competitionId, season);
   const awayId = await upsertTeam(db, awayTeam, competitionId, season);
   const state = apiFixtureStatus(match.fixture.status.short);
-  const stableMatchId = stableHash(["match", match.fixture.date.slice(0, 10), match.teams.home.name, match.teams.away.name].join("|"));
+  const stableMatchId = stableHash(["match", season, match.teams.home.name, match.teams.away.name].join("|"));
   const { error } = await db.from("partidos").upsert({
     id: internalId(MATCH_ID_OFFSET, stableMatchId),
     competid_id: competitionId,
@@ -235,7 +235,7 @@ async function saveOpenMatchdayConferenceFixture(
   const homeId = await upsertTeam(db, homeTeam, competitionId, season);
   const awayId = await upsertTeam(db, awayTeam, competitionId, season);
   openMatchdayTimeToUtc(match.date, match.time);
-  const id = internalId(MATCH_ID_OFFSET, stableHash(["match", match.date, match.home, match.away].join("|")));
+  const id = internalId(MATCH_ID_OFFSET, stableHash(["match", season, match.home, match.away].join("|")));
   const { error } = await db.from("partidos").upsert({
     id, competid_id: competitionId, temporada: season, jornada: match.round,
     jornada_nombre: "Jornada " + match.round, fecha_utc: kickoff,
