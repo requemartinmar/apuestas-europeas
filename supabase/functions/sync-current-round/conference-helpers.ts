@@ -29,3 +29,13 @@ export function openMatchdayTimeToUtc(date: string, time: string): string {
   // El CSV usa un offset fijo +01:00: convertir la hora local del fichero a UTC resta una hora.
   return new Date(Date.UTC(year, month - 1, day, hour - 1, minute)).toISOString();
 }
+
+/** ID estable de partido: incluye fecha para no colapsar dos enfrentamientos del mismo cruce. */
+export function conferenceFixtureHash(season: string, date: string, home: string, away: string): number {
+  return stableHash(["match", season, date, home, away].join("|"));
+}
+
+/** ID determinista y separado del rango de IDs históricos existentes. */
+export function conferenceHistoricalId(season: string, date: string, home: string, away: string): number {
+  return 600_000_000_000_000 + stableHash(["historical", "UECL", season, date, home, away].join("|"));
+}
