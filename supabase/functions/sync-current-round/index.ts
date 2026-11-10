@@ -195,7 +195,7 @@ async function saveConferenceFixture(db: ReturnType<typeof createClient>, match:
 
 
 function stableHash(value: string): number {
-  const normalized = value.normalize("NFKD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9|]/g, "");
+  const normalized = value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9|]/g, "");
   let hash = 2166136261;
   for (let i = 0; i < normalized.length; i++) hash = Math.imul(hash ^ normalized.charCodeAt(i), 16777619);
   return hash >>> 0;
