@@ -12,37 +12,23 @@ export function stableHash(value: string): number {
   return Number(hash & ((1n << 48n) - 1n));
 }
 
-/** Convierte hora civil española a UTC usando la regla CET/CEST de Europe/Madrid. */
-export function madridLocalTimeToUtc(date: string, time: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
-    throw new Error("Fecha u hora local inválida");
+/** Open-matchday documenta date en UTC y time con offset fijo UTC+1 (convención CET-1), también en verano. */
+export function openMatchdayTimeToUtc(date: string, time: string): string {
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !/^\\d{2}:\\d{2}$/.test(time)) {
+    throw new Error("Fecha u hora de Open-matchday inválida");
   }
   const [year, month, day] = date.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
   if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) {
-    throw new Error("Fecha u hora local fuera de rango");
+    throw new Error("Fecha u hora de Open-matchday fuera de rango");
   }
-  const target = Date.UTC(year, month - 1, day, hour, minute);
-  let candidate = target;
-  const formatter = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/Madrid",
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-  });
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const parts = Object.fromEntries(formatter.formatToParts(new Date(candidate)).map((part) => [part.type, part.value]));
-    const representedAsUtc = Date.UTC(
-      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
-      Number(parts.hour), Number(parts.minute), Number(parts.second),
-    );
-    const delta = target - representedAsUtc;
-    candidate += delta;
-    if (delta === 0) break;
+  const utc = new Date(Date.UTC(year, month - 1, day, hour - 1, minute));
+  if (utc.getUTCFullYear() !== year || utc.getUTCMonth() !== month - 1 || utc.getUTCDate() !== day && hour > 0) {
+    // La resta de una hora puede cruzar medianoche; solo se valida la fecha civil antes del ajuste.
+    const dateCheck = new Date(Date.UTC(year, month - 1, day));
+    if (dateCheck.getUTCFullYear() !== year || dateCheck.getUTCMonth() !== month - 1 || dateCheck.getUTCDate() !== day) {
+      throw new Error("Fecha de Open-matchday inválida");
+    }
   }
-  const check = Object.fromEntries(formatter.formatToParts(new Date(candidate)).map((part) => [part.type, part.value]));
-  if (Number(check.year) !== year || Number(check.month) !== month || Number(check.day) !== day ||
-      Number(check.hour) !== hour || Number(check.minute) !== minute) {
-    throw new Error("La hora local no existe en Europe/Madrid por el cambio horario");
-  }
-  return new Date(candidate).toISOString();
+  return utc.toISOString();
 }
