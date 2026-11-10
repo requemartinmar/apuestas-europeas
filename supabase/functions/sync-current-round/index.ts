@@ -160,11 +160,14 @@ function conferenceHistoricalRecord(match: ApiFixture, year: number) {
 async function saveConferenceFixture(db: ReturnType<typeof createClient>, match: ApiFixture, year: number) {
   const competitionId = "848";
   const season = seasonLabel(year);
-  const homeId = await upsertTeam(db, match.teams.home, competitionId, season);
-  const awayId = await upsertTeam(db, match.teams.away, competitionId, season);
+  const homeTeam: Team = { ...match.teams.home, id: stableHash("team|" + match.teams.home.name) };
+  const awayTeam: Team = { ...match.teams.away, id: stableHash("team|" + match.teams.away.name) };
+  const homeId = await upsertTeam(db, homeTeam, competitionId, season);
+  const awayId = await upsertTeam(db, awayTeam, competitionId, season);
   const state = apiFixtureStatus(match.fixture.status.short);
+  const stableMatchId = stableHash(["match", match.fixture.date.slice(0, 10), match.teams.home.name, match.teams.away.name].join("|"));
   const { error } = await db.from("partidos").upsert({
-    id: internalId(MATCH_ID_OFFSET, match.fixture.id),
+    id: internalId(MATCH_ID_OFFSET, stableMatchId),
     competid_id: competitionId,
     temporada: season,
     jornada: 0,
@@ -192,8 +195,9 @@ async function saveConferenceFixture(db: ReturnType<typeof createClient>, match:
 
 
 function stableHash(value: string): number {
+  const normalized = value.normalize("NFKD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9|]/g, "");
   let hash = 2166136261;
-  for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
+  for (let i = 0; i < normalized.length; i++) hash = Math.imul(hash ^ normalized.charCodeAt(i), 16777619);
   return hash >>> 0;
 }
 
@@ -220,12 +224,12 @@ async function saveOpenMatchdayConferenceFixture(
 ) {
   const competitionId = "848";
   const season = seasonLabel(year);
-  const homeTeam: Team = { id: stableHash(match.home), name: match.home };
-  const awayTeam: Team = { id: stableHash(match.away), name: match.away };
+  const homeTeam: Team = { id: stableHash("team|" + match.home), name: match.home };
+  const awayTeam: Team = { id: stableHash("team|" + match.away), name: match.away };
   const homeId = await upsertTeam(db, homeTeam, competitionId, season);
   const awayId = await upsertTeam(db, awayTeam, competitionId, season);
   const kickoff = new Date(match.date + "T" + match.time + ":00+01:00").toISOString();
-  const id = internalId(MATCH_ID_OFFSET, stableHash([match.date, match.home, match.away].join("|")));
+  const id = internalId(MATCH_ID_OFFSET, stableHash(["match", match.date, match.home, match.away].join("|")));
   const { error } = await db.from("partidos").upsert({
     id, competid_id: competitionId, temporada: season, jornada: match.round,
     jornada_nombre: "Jornada " + match.round, fecha_utc: kickoff,
