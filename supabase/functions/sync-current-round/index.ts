@@ -201,8 +201,9 @@ function stableHash(value: string): number {
   return hash >>> 0;
 }
 
-async function fetchOpenMatchdayConferenceFixtures(from: string, to: string) {
-  const url = "https://raw.githubusercontent.com/oladeeayo/open-matchday/master/data/UEFA_1_conference-league/fixtures_2627.csv";
+async function fetchOpenMatchdayConferenceFixtures(year: number, from: string, to: string) {
+  const seasonCode = String(year).slice(-2) + String(year + 1).slice(-2);
+  const url = "https://raw.githubusercontent.com/oladeeayo/open-matchday/master/data/UEFA_1_conference-league/fixtures_" + seasonCode + ".csv";
   const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!response.ok) throw new Error("open-matchday Conference HTTP " + response.status);
   const csv = (await response.text()).replace(/^\uFEFF/, "");
@@ -256,22 +257,27 @@ async function syncConferenceLeague(db: ReturnType<typeof createClient>, year: n
   // Primero guardar el calendario próximo: no debe depender de que el histórico esté completo.
   let current: ApiFixture[] = [];
   let saved = 0;
+  let fixturesSeen = 0;
+  let calendarSource = "API-Football";
   try {
     current = await fetchApiFootballSeason(year, from, to);
   } catch (error) {
     console.warn("conference_api_football_fallback", String(error).slice(0, 220));
   }
   if (current.length) {
+    fixturesSeen = current.length;
     for (const match of current) {
       await saveConferenceFixture(db, match, year);
       saved++;
     }
   } else {
-    const openFixtures = await fetchOpenMatchdayConferenceFixtures(from, to);
+    const openFixtures = await fetchOpenMatchdayConferenceFixtures(year, from, to);
     for (const match of openFixtures) {
       await saveOpenMatchdayConferenceFixture(db, match, year);
       saved++;
     }
+    fixturesSeen = openFixtures.length;
+    calendarSource = "open-matchday";
   }
 
   // Importar como máximo una temporada histórica por ejecución (cron cada 6 h).
@@ -305,7 +311,12 @@ async function syncConferenceLeague(db: ReturnType<typeof createClient>, year: n
       historyImported = records.length;
       historyOutcomes.push({ temporada: seasonLabel(startYear), estado: "SUCCESS", partidos_historicos: records.length });
     } catch (error) {
-      historyOutcomes.push({ temporada: seasonLabel(startYear), estado: "FAILED", error: String(error).slice(0, 250) });
+      const message = String(error).slice(0, 250);
+      await db.from("historical_import_log").upsert({
+        season_code: seasonCode, league_code: "UECL", last_run: new Date().toISOString(),
+        rows_upserted: 0, status: "failed",
+      }, { onConflict: "season_code,league_code" });
+      historyOutcomes.push({ temporada: seasonLabel(startYear), estado: "FAILED", error: message });
     }
     break;
   }
@@ -315,8 +326,9 @@ async function syncConferenceLeague(db: ReturnType<typeof createClient>, year: n
   return {
     competicion: "UEFA Conference League",
     estado: "SUCCESS",
-    partidos_vistos: current.length,
+    partidos_vistos: fixturesSeen,
     partidos_guardados: saved,
+    fuente_calendario: calendarSource,
     historico_importado: historyImported,
     temporadas_historicas: historyOutcomes,
     total_historico_disponible: historyCount ?? 0,
