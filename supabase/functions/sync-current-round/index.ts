@@ -81,6 +81,177 @@ async function upsertTeam(db: ReturnType<typeof createClient>, team: Team, compe
   return id;
 }
 
+
+type ApiFixture = {
+  fixture: { id: number; date: string; status: { short: string } };
+  league: { round?: string | null };
+  teams: { home: Team; away: Team };
+  goals: { home: number | null; away: number | null };
+};
+type ApiFixtureEnvelope = { response?: ApiFixture[]; errors?: Record<string, unknown>; paging?: { current?: number; total?: number }; message?: string };
+
+function apiFixtureStatus(short: string): string {
+  if (["FT", "AET", "PEN"].includes(short)) return "FINISHED";
+  if (["1H", "HT", "2H", "ET", "BT", "P"].includes(short)) return "LIVE";
+  if (["PST", "SUSP"].includes(short)) return "POSTPONED";
+  if (["CANC", "ABD", "AWD", "WO"].includes(short)) return "NOT_PLAYED";
+  return "SCHEDULED";
+}
+
+async function fetchApiFootballPage(year: number, page: number, from?: string, to?: string): Promise<ApiFixtureEnvelope> {
+  const key = env("API_FOOTBALL_KEY");
+  if (!key) throw new Error("API_FOOTBALL_KEY no configurada");
+  const url = new URL("https://v3.football.api-sports.io/fixtures");
+  url.searchParams.set("league", "848");
+  url.searchParams.set("season", String(year));
+  url.searchParams.set("timezone", "UTC");
+  url.searchParams.set("page", String(page));
+  if (from) url.searchParams.set("from", from);
+  if (to) url.searchParams.set("to", to);
+  const response = await fetch(url, {
+    headers: { "x-apisports-key": key },
+    signal: AbortSignal.timeout(20000),
+  });
+  const body = await response.json() as ApiFixtureEnvelope;
+  if (!response.ok || (body.errors && Object.keys(body.errors).length)) {
+    throw new Error("API-Football Conference " + year + ": " + JSON.stringify(body.errors ?? body.message ?? response.status).slice(0, 250));
+  }
+  return body;
+}
+
+async function fetchApiFootballSeason(year: number, from?: string, to?: string): Promise<ApiFixture[]> {
+  const all: ApiFixture[] = [];
+  let page = 1;
+  let total = 1;
+  do {
+    const body = await fetchApiFootballPage(year, page, from, to);
+    all.push(...(body.response ?? []));
+    total = Math.max(1, Number(body.paging?.total ?? 1));
+    page++;
+  } while (page <= total && page <= 5);
+  return all;
+}
+
+function conferenceHistoricalRecord(match: ApiFixture, year: number) {
+  const date = match.fixture.date;
+  return {
+    league_code: "UECL",
+    league_name: "UEFA Conference League",
+    season: seasonLabel(year),
+    match_date: date.slice(0, 10),
+    kickoff_time: date.slice(11, 16) || null,
+    home_team: match.teams.home.name,
+    away_team: match.teams.away.name,
+    home_goals: match.goals.home,
+    away_goals: match.goals.away,
+    home_shots: null,
+    away_shots: null,
+    home_shots_on_target: null,
+    away_shots_on_target: null,
+    home_corners: null,
+    away_corners: null,
+    home_yellow: null,
+    away_yellow: null,
+    home_red: null,
+    away_red: null,
+  };
+}
+
+async function saveConferenceFixture(db: ReturnType<typeof createClient>, match: ApiFixture, year: number) {
+  const competitionId = "848";
+  const season = seasonLabel(year);
+  const homeId = await upsertTeam(db, match.teams.home, competitionId, season);
+  const awayId = await upsertTeam(db, match.teams.away, competitionId, season);
+  const state = apiFixtureStatus(match.fixture.status.short);
+  const { error } = await db.from("partidos").upsert({
+    id: internalId(MATCH_ID_OFFSET, match.fixture.id),
+    competid_id: competitionId,
+    temporada: season,
+    jornada: 0,
+    jornada_nombre: String(match.league.round ?? "Conference League").replaceAll("_", " "),
+    fecha_utc: match.fixture.date,
+    equipo_local_id: homeId,
+    equipo_visitante_id: awayId,
+    goles_local: match.goals.home,
+    goles_visitante: match.goals.away,
+    estado: state,
+    fuente: "API-Football",
+    sincronizado_at: new Date().toISOString(),
+    raw_payload: match,
+    estadisticas_estado: state === "FINISHED" ? "EMPTY_RESPONSE" : "PENDING",
+  }, { onConflict: "id" });
+  if (error) throw error;
+  if (state === "FINISHED" && match.goals.home !== null && match.goals.away !== null) {
+    const { error: historyError } = await db.from("historical_matches").upsert(
+      [conferenceHistoricalRecord(match, year)],
+      { onConflict: "league_code,season,match_date,home_team,away_team" },
+    );
+    if (historyError) throw historyError;
+  }
+}
+
+async function syncConferenceLeague(db: ReturnType<typeof createClient>, year: number, from: string, to: string) {
+  const competitionId = "848";
+  const season = seasonLabel(year);
+  const { error: compError } = await db.from("competiciones").upsert({
+    id: competitionId,
+    nombre: "UEFA Conference League",
+    pais: "Europa",
+    temporada_actual: season,
+    activo: true,
+  }, { onConflict: "id" });
+  if (compError) throw compError;
+
+  // Importar temporadas anteriores una sola vez al día; no consumir la cuota en cada sincronización.
+  const history: Array<Record<string, unknown>> = [];
+  const historyOutcomes: Array<Record<string, unknown>> = [];
+  for (let startYear = 2021; startYear < year; startYear++) {
+    const seasonCode = String(startYear % 100).padStart(2, "0") + String((startYear + 1) % 100).padStart(2, "0");
+    const { data: log } = await db.from("historical_import_log")
+      .select("last_run").eq("season_code", seasonCode).eq("league_code", "UECL").maybeSingle();
+    if (log && Date.now() - new Date(log.last_run).getTime() < 24 * 3600 * 1000) {
+      historyOutcomes.push({ temporada: seasonLabel(startYear), estado: "SKIPPED_RECENT" });
+      continue;
+    }
+    const fixtures = await fetchApiFootballSeason(startYear);
+    const records = fixtures
+      .filter((m) => apiFixtureStatus(m.fixture.status.short) === "FINISHED" && m.goals.home !== null && m.goals.away !== null)
+      .map((m) => conferenceHistoricalRecord(m, startYear));
+    for (let i = 0; i < records.length; i += 200) {
+      const { error } = await db.from("historical_matches").upsert(records.slice(i, i + 200), {
+        onConflict: "league_code,season,match_date,home_team,away_team",
+      });
+      if (error) throw error;
+    }
+    const { error: logError } = await db.from("historical_import_log").upsert({
+      season_code: seasonCode, league_code: "UECL", last_run: new Date().toISOString(),
+      rows_upserted: records.length, status: "ok",
+    }, { onConflict: "season_code,league_code" });
+    if (logError) throw logError;
+    history.push(...records);
+    historyOutcomes.push({ temporada: seasonLabel(startYear), estado: "SUCCESS", partidos_historicos: records.length });
+  }
+
+  const current = await fetchApiFootballSeason(year, from, to);
+  let saved = 0;
+  for (const match of current) {
+    await saveConferenceFixture(db, match, year);
+    saved++;
+  }
+  const { count: historyCount, error: countError } = await db.from("historical_matches")
+    .select("id", { count: "exact", head: true }).eq("league_code", "UECL");
+  if (countError) throw countError;
+  return {
+    competicion: "UEFA Conference League",
+    estado: "SUCCESS",
+    partidos_vistos: current.length,
+    partidos_guardados: saved,
+    historico_importado: history.length,
+    temporadas_historicas: historyOutcomes,
+    total_historico_disponible: historyCount ?? 0,
+  };
+}
+
 Deno.serve(async (request) => {
   if (request.method !== "POST") return reply({ error: "method_not_allowed" }, 405);
   const syncSecret = env("SYNC_FUNCTION_SECRET");
@@ -153,12 +324,21 @@ Deno.serve(async (request) => {
       }
     }
 
-    // Mantener desactivadas las dos competiciones no incluidas en el nivel gratuito.
-    for (const [id, name] of [["3", "UEFA Europa League"], ["848", "UEFA Conference League"]]) {
-      const { error } = await db.from("competiciones").upsert({ id, nombre: name, pais: "Europa", temporada_actual: season, activo: false }, { onConflict: "id" });
-      if (error) outcomes.push({ competicion: id, estado: "FAILED", error: error.message });
-      else outcomes.push({ competicion: id, estado: "UNAVAILABLE_FREE_TIER" });
+    // Conference League: fuente alternativa API-Football (football-data.org Free no la cubre).
+    try {
+      const conferenceFrom = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
+      const conferenceTo = new Date(now.getTime() + 45 * 86400000).toISOString().slice(0, 10);
+      outcomes.push(await syncConferenceLeague(db, year, conferenceFrom, conferenceTo));
+    } catch (error) {
+      outcomes.push({ competicion: "UEFA Conference League", estado: "FAILED", error: String(error).slice(0, 350) });
     }
+
+    // Europa League sigue desactivada: no se incorpora sin una fuente verificada.
+    const { error: europaError } = await db.from("competiciones").upsert({
+      id: "3", nombre: "UEFA Europa League", pais: "Europa", temporada_actual: season, activo: false,
+    }, { onConflict: "id" });
+    if (europaError) outcomes.push({ competicion: "3", estado: "FAILED", error: europaError.message });
+    else outcomes.push({ competicion: "3", estado: "UNAVAILABLE_FREE_TIER" });
 
     const partial = outcomes.some((item) => item.estado === "FAILED");
     const totals = outcomes.reduce((sum, item) => ({
