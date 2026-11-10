@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { MAX_API_FOOTBALL_PAGES, madridLocalTimeToUtc, stableHash } from "./conference-helpers.ts";
 
 // El cliente usa el esquema público sin tipos generados; evita que ReturnType
 // colapse las tablas a never al reutilizarlo en helpers.
@@ -130,10 +131,17 @@ async function fetchApiFootballSeason(year: number, from?: string, to?: string):
   do {
     const body = await fetchApiFootballPage(year, page, from, to);
     all.push(...(body.response ?? []));
-    total = Math.max(1, Number(body.paging?.total ?? 1));
+    const reportedTotal = Number(body.paging?.total ?? 1);
+    if (!Number.isInteger(reportedTotal) || reportedTotal < 1) {
+      throw new Error("API-Football devolvió un total de páginas inválido");
+    }
+    total = reportedTotal;
+    if (total > MAX_API_FOOTBALL_PAGES) {
+      throw new Error(`API-Football ${year}: ${total} páginas supera el límite seguro de ${MAX_API_FOOTBALL_PAGES}`);
+    }
     page++;
-  } while (page <= total && page <= 5);
-  return all;
+  } while (page <= total);
+  return [...new Map(all.map((fixture) => [fixture.fixture.id, fixture])).values()];
 }
 
 function conferenceHistoricalRecord(match: ApiFixture, year: number) {
@@ -198,13 +206,6 @@ async function saveConferenceFixture(db: Db, match: ApiFixture, year: number) {
 }
 
 
-function stableHash(value: string): number {
-  const normalized = value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9|]/g, "");
-  let hash = 2166136261;
-  for (let i = 0; i < normalized.length; i++) hash = Math.imul(hash ^ normalized.charCodeAt(i), 16777619);
-  return hash >>> 0;
-}
-
 async function fetchOpenMatchdayConferenceFixtures(year: number, from: string, to: string) {
   const seasonCode = String(year).slice(-2) + String(year + 1).slice(-2);
   const url = "https://raw.githubusercontent.com/oladeeayo/open-matchday/master/data/UEFA_1_conference-league/fixtures_" + seasonCode + ".csv";
@@ -233,7 +234,7 @@ async function saveOpenMatchdayConferenceFixture(
   const awayTeam: Team = { id: stableHash("team|" + match.away), name: match.away };
   const homeId = await upsertTeam(db, homeTeam, competitionId, season);
   const awayId = await upsertTeam(db, awayTeam, competitionId, season);
-  const kickoff = new Date(match.date + "T" + match.time + ":00+01:00").toISOString();
+  madridLocalTimeToUtc(match.date, match.time);
   const id = internalId(MATCH_ID_OFFSET, stableHash(["match", match.date, match.home, match.away].join("|")));
   const { error } = await db.from("partidos").upsert({
     id, competid_id: competitionId, temporada: season, jornada: match.round,
@@ -291,8 +292,8 @@ async function syncConferenceLeague(db: Db, year: number, from: string, to: stri
   for (let startYear = 2021; startYear < year; startYear++) {
     const seasonCode = String(startYear % 100).padStart(2, "0") + String((startYear + 1) % 100).padStart(2, "0");
     const { data: log } = await db.from("historical_import_log")
-      .select("last_run").eq("season_code", seasonCode).eq("league_code", "UECL").maybeSingle();
-    if (log && Date.now() - new Date(log.last_run).getTime() < 24 * 3600 * 1000) {
+      .select("last_run,status").eq("season_code", seasonCode).eq("league_code", "UECL").maybeSingle();
+    if (log?.status === "ok" && Date.now() - new Date(log.last_run).getTime() < 24 * 3600 * 1000) {
       historyOutcomes.push({ temporada: seasonLabel(startYear), estado: "SKIPPED_RECENT" });
       continue;
     }
@@ -301,6 +302,9 @@ async function syncConferenceLeague(db: Db, year: number, from: string, to: stri
       const records = fixtures
         .filter((m) => apiFixtureStatus(m.fixture.status.short) === "FINISHED" && m.goals.home !== null && m.goals.away !== null)
         .map((m) => conferenceHistoricalRecord(m, startYear));
+      if (records.length === 0) {
+        throw new Error(`API-Football ${seasonLabel(startYear)} no devolvió resultados históricos finalizados`);
+      }
       for (let i = 0; i < records.length; i += 200) {
         const { error } = await db.from("historical_matches").upsert(records.slice(i, i + 200), {
           onConflict: "league_code,season,match_date,home_team,away_team",
@@ -329,10 +333,11 @@ async function syncConferenceLeague(db: Db, year: number, from: string, to: stri
   if (countError) throw countError;
   return {
     competicion: "UEFA Conference League",
-    estado: "SUCCESS",
+    estado: fixturesSeen > 0 ? "SUCCESS" : "NO_FIXTURES",
     partidos_vistos: fixturesSeen,
     partidos_guardados: saved,
     fuente_calendario: calendarSource,
+    aviso_calendario: fixturesSeen === 0 ? "Ninguna fuente devolvió partidos en la ventana consultada" : null,
     historico_importado: historyImported,
     temporadas_historicas: historyOutcomes,
     total_historico_disponible: historyCount ?? 0,
