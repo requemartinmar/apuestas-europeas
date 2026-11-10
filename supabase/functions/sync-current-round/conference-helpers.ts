@@ -22,13 +22,10 @@ export function openMatchdayTimeToUtc(date: string, time: string): string {
   if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) {
     throw new Error("Fecha u hora de Open-matchday fuera de rango");
   }
-  const utc = new Date(Date.UTC(year, month - 1, day, hour - 1, minute));
-  if (utc.getUTCFullYear() !== year || utc.getUTCMonth() !== month - 1 || utc.getUTCDate() !== day && hour > 0) {
-    // La resta de una hora puede cruzar medianoche; solo se valida la fecha civil antes del ajuste.
-    const dateCheck = new Date(Date.UTC(year, month - 1, day));
-    if (dateCheck.getUTCFullYear() !== year || dateCheck.getUTCMonth() !== month - 1 || dateCheck.getUTCDate() !== day) {
-      throw new Error("Fecha de Open-matchday inválida");
-    }
+  const dateCheck = new Date(Date.UTC(year, month - 1, day));
+  if (dateCheck.getUTCFullYear() !== year || dateCheck.getUTCMonth() !== month - 1 || dateCheck.getUTCDate() !== day) {
+    throw new Error("Fecha de Open-matchday inválida");
   }
-  return utc.toISOString();
+  // El CSV usa un offset fijo +01:00: convertir la hora local del fichero a UTC resta una hora.
+  return new Date(Date.UTC(year, month - 1, day, hour - 1, minute)).toISOString();
 }
