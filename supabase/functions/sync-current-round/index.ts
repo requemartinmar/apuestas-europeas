@@ -190,6 +190,53 @@ async function saveConferenceFixture(db: ReturnType<typeof createClient>, match:
   }
 }
 
+
+function stableHash(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
+  return hash >>> 0;
+}
+
+async function fetchOpenMatchdayConferenceFixtures(from: string, to: string) {
+  const url = "https://raw.githubusercontent.com/oladeeayo/open-matchday/master/data/UEFA_1_conference-league/fixtures_2627.csv";
+  const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  if (!response.ok) throw new Error("open-matchday Conference HTTP " + response.status);
+  const csv = (await response.text()).replace(/^\uFEFF/, "");
+  const lines = csv.split(/\r?\n/).filter(Boolean);
+  const out: Array<{ round: number; date: string; time: string; home: string; away: string }> = [];
+  for (const line of lines.slice(1)) {
+    const [roundRaw, date, time, home, away] = line.split(",");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? "") || !/^\d{2}:\d{2}$/.test(time ?? "") || !home || !away) continue;
+    if (date < from || date > to) continue;
+    out.push({ round: Number(roundRaw) || 0, date, time, home: home.trim(), away: away.trim() });
+  }
+  return out;
+}
+
+async function saveOpenMatchdayConferenceFixture(
+  db: ReturnType<typeof createClient>,
+  match: { round: number; date: string; time: string; home: string; away: string },
+  year: number,
+) {
+  const competitionId = "848";
+  const season = seasonLabel(year);
+  const homeTeam: Team = { id: stableHash(match.home), name: match.home };
+  const awayTeam: Team = { id: stableHash(match.away), name: match.away };
+  const homeId = await upsertTeam(db, homeTeam, competitionId, season);
+  const awayId = await upsertTeam(db, awayTeam, competitionId, season);
+  const kickoff = new Date(match.date + "T" + match.time + ":00+01:00").toISOString();
+  const id = internalId(MATCH_ID_OFFSET, stableHash([match.date, match.home, match.away].join("|")));
+  const { error } = await db.from("partidos").upsert({
+    id, competid_id: competitionId, temporada: season, jornada: match.round,
+    jornada_nombre: "Jornada " + match.round, fecha_utc: kickoff,
+    equipo_local_id: homeId, equipo_visitante_id: awayId,
+    goles_local: null, goles_visitante: null, estado: "SCHEDULED",
+    fuente: "open-matchday", sincronizado_at: new Date().toISOString(),
+    raw_payload: match, estadisticas_estado: "PENDING",
+  }, { onConflict: "id" });
+  if (error) throw error;
+}
+
 async function syncConferenceLeague(db: ReturnType<typeof createClient>, year: number, from: string, to: string) {
   const competitionId = "848";
   const season = seasonLabel(year);
@@ -203,11 +250,24 @@ async function syncConferenceLeague(db: ReturnType<typeof createClient>, year: n
   if (compError) throw compError;
 
   // Primero guardar el calendario próximo: no debe depender de que el histórico esté completo.
-  const current = await fetchApiFootballSeason(year, from, to);
+  let current: ApiFixture[] = [];
   let saved = 0;
-  for (const match of current) {
-    await saveConferenceFixture(db, match, year);
-    saved++;
+  try {
+    current = await fetchApiFootballSeason(year, from, to);
+  } catch (error) {
+    console.warn("conference_api_football_fallback", String(error).slice(0, 220));
+  }
+  if (current.length) {
+    for (const match of current) {
+      await saveConferenceFixture(db, match, year);
+      saved++;
+    }
+  } else {
+    const openFixtures = await fetchOpenMatchdayConferenceFixtures(from, to);
+    for (const match of openFixtures) {
+      await saveOpenMatchdayConferenceFixture(db, match, year);
+      saved++;
+    }
   }
 
   // Importar como máximo una temporada histórica por ejecución (cron cada 6 h).
