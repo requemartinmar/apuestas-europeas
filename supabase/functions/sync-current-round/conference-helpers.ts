@@ -1,7 +1,7 @@
 /** Helpers puros para importar Conference League. */
 export const MAX_API_FOOTBALL_PAGES = 20;
 
-/** Hash estable de 40 bits; cabe con los offsets internos dentro de Number.MAX_SAFE_INTEGER. */
+/** Hash estable de 48 bits; cabe con los offsets internos dentro de Number.MAX_SAFE_INTEGER. */
 export function stableHash(value: string): number {
   const normalized = value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9|]/g, "");
   let hash = 14695981039346656037n;
@@ -9,7 +9,7 @@ export function stableHash(value: string): number {
     hash ^= BigInt(normalized.charCodeAt(i));
     hash = BigInt.asUintN(64, hash * 1099511628211n);
   }
-  return Number(hash & ((1n << 40n) - 1n));
+  return Number(hash & ((1n << 48n) - 1n));
 }
 
 /** Convierte hora civil española a UTC usando la regla CET/CEST de Europe/Madrid. */
