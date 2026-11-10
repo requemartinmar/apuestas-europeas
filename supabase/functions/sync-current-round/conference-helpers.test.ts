@@ -35,7 +35,7 @@ Deno.test("IDs internos de Conference no se solapan con IDs originales de API-Fo
   assertEquals(teamId > 7_000_000_000_000_000 + 1_000_000_000, true);
   assertEquals(Number.isSafeInteger(matchId), true);
   assertEquals(Number.isSafeInteger(teamId), true);
-  assertEquals(Number.isSafeInteger(conferenceNamespacedId(8_000_000_000_000_000, (1n << 48n) - 1n as unknown as number)), true);
+  assertEquals(Number.isSafeInteger(conferenceNamespacedId(8_000_000_000_000_000, Number((1n << 48n) - 1n))), true);
 });
 
 Deno.test("ID histórico es determinista y queda fuera del rango antiguo", () => {
