@@ -202,9 +202,18 @@ async function syncConferenceLeague(db: ReturnType<typeof createClient>, year: n
   }, { onConflict: "id" });
   if (compError) throw compError;
 
-  // Importar temporadas anteriores una sola vez al día; no consumir la cuota en cada sincronización.
-  const history: Array<Record<string, unknown>> = [];
+  // Primero guardar el calendario próximo: no debe depender de que el histórico esté completo.
+  const current = await fetchApiFootballSeason(year, from, to);
+  let saved = 0;
+  for (const match of current) {
+    await saveConferenceFixture(db, match, year);
+    saved++;
+  }
+
+  // Importar como máximo una temporada histórica por ejecución (cron cada 6 h).
+  // Así se reparte el consumo de API-Football y el calendario actual siempre se sincroniza.
   const historyOutcomes: Array<Record<string, unknown>> = [];
+  let historyImported = 0;
   for (let startYear = 2021; startYear < year; startYear++) {
     const seasonCode = String(startYear % 100).padStart(2, "0") + String((startYear + 1) % 100).padStart(2, "0");
     const { data: log } = await db.from("historical_import_log")
@@ -213,30 +222,28 @@ async function syncConferenceLeague(db: ReturnType<typeof createClient>, year: n
       historyOutcomes.push({ temporada: seasonLabel(startYear), estado: "SKIPPED_RECENT" });
       continue;
     }
-    const fixtures = await fetchApiFootballSeason(startYear);
-    const records = fixtures
-      .filter((m) => apiFixtureStatus(m.fixture.status.short) === "FINISHED" && m.goals.home !== null && m.goals.away !== null)
-      .map((m) => conferenceHistoricalRecord(m, startYear));
-    for (let i = 0; i < records.length; i += 200) {
-      const { error } = await db.from("historical_matches").upsert(records.slice(i, i + 200), {
-        onConflict: "league_code,season,match_date,home_team,away_team",
-      });
-      if (error) throw error;
+    try {
+      const fixtures = await fetchApiFootballSeason(startYear);
+      const records = fixtures
+        .filter((m) => apiFixtureStatus(m.fixture.status.short) === "FINISHED" && m.goals.home !== null && m.goals.away !== null)
+        .map((m) => conferenceHistoricalRecord(m, startYear));
+      for (let i = 0; i < records.length; i += 200) {
+        const { error } = await db.from("historical_matches").upsert(records.slice(i, i + 200), {
+          onConflict: "league_code,season,match_date,home_team,away_team",
+        });
+        if (error) throw error;
+      }
+      const { error: logError } = await db.from("historical_import_log").upsert({
+        season_code: seasonCode, league_code: "UECL", last_run: new Date().toISOString(),
+        rows_upserted: records.length, status: "ok",
+      }, { onConflict: "season_code,league_code" });
+      if (logError) throw logError;
+      historyImported = records.length;
+      historyOutcomes.push({ temporada: seasonLabel(startYear), estado: "SUCCESS", partidos_historicos: records.length });
+    } catch (error) {
+      historyOutcomes.push({ temporada: seasonLabel(startYear), estado: "FAILED", error: String(error).slice(0, 250) });
     }
-    const { error: logError } = await db.from("historical_import_log").upsert({
-      season_code: seasonCode, league_code: "UECL", last_run: new Date().toISOString(),
-      rows_upserted: records.length, status: "ok",
-    }, { onConflict: "season_code,league_code" });
-    if (logError) throw logError;
-    history.push(...records);
-    historyOutcomes.push({ temporada: seasonLabel(startYear), estado: "SUCCESS", partidos_historicos: records.length });
-  }
-
-  const current = await fetchApiFootballSeason(year, from, to);
-  let saved = 0;
-  for (const match of current) {
-    await saveConferenceFixture(db, match, year);
-    saved++;
+    break;
   }
   const { count: historyCount, error: countError } = await db.from("historical_matches")
     .select("id", { count: "exact", head: true }).eq("league_code", "UECL");
@@ -246,7 +253,7 @@ async function syncConferenceLeague(db: ReturnType<typeof createClient>, year: n
     estado: "SUCCESS",
     partidos_vistos: current.length,
     partidos_guardados: saved,
-    historico_importado: history.length,
+    historico_importado: historyImported,
     temporadas_historicas: historyOutcomes,
     total_historico_disponible: historyCount ?? 0,
   };
