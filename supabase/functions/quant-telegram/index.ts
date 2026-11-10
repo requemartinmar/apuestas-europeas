@@ -550,6 +550,7 @@ async function settleModelPredictions(): Promise<PredictionSettlementSummary> {
     soccer_italy_serie_a: "135",
     soccer_germany_bundesliga: "78",
     soccer_uefa_champs_league: "2",
+    soccer_uefa_europa_conference_league: "848",
   };
   const eligible = pending.filter((p: any) => Boolean(competitionBySport[String(p.sport_key ?? "")]));
   summary.unsupported = pending.length - eligible.length;
@@ -663,7 +664,7 @@ async function settleModelPredictions(): Promise<PredictionSettlementSummary> {
   return summary;
 }
 
-async function sendUpcomingFixtures(chatId: number | string): Promise<void> {
+async function sendUpcomingFixtures(chatId: number | string, competitionId?: string): Promise<void> {
   const now = new Date();
   const window = getCanchaWindow(now);
   const PAGE_SIZE = 1000;
@@ -671,11 +672,13 @@ async function sendUpcomingFixtures(chatId: number | string): Promise<void> {
   let offset = 0;
 
   while (true) {
-    const { data: page, error } = await supabase
+    let query = supabase
       .from("partidos")
       .select("fecha_utc,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)")
       .gt("fecha_utc", now.toISOString())
-      .lte("fecha_utc", window.end)
+      .lte("fecha_utc", window.end);
+    if (competitionId) query = query.eq("competid_id", competitionId);
+    const { data: page, error } = await query
       .order("fecha_utc", { ascending: true })
       .order("id", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);
@@ -966,6 +969,8 @@ async function getModelForSport(sportKey:string):Promise<RollingPoisson|null>{
   addRowsToModel(model,await fetchHistoricalLeague(code),"historical");
  }else if(sportKey==="soccer_uefa_champs_league"){
   addRowsToModel(model,await fetchQuantCompetition("Champions League"),"quant");
+ }else if(sportKey==="soccer_uefa_europa_conference_league"){
+  addRowsToModel(model,await fetchHistoricalLeague("UECL"),"historical");
  }else{
   return null;
  }
@@ -1332,6 +1337,7 @@ async function handleUpdate(update: any) {
     if (matches.length === 0) {
       await telegram("sendMessage", { chat_id: chatId, text: "⚠️ No hay partidos programados para hoy en las ligas seleccionadas."+(errors.length?"\n\nCompeticiones omitidas:\n"+errors.join("\n"):"") });
       if (buttons === null) await sendUpcomingFixtures(chatId);
+      else if (text === "🟢 Conference League") await sendUpcomingFixtures(chatId, "848");
     } else {
       for (const m of matches) {
         await telegram("sendMessage", { chat_id: chatId, text: formatMatch(m), parse_mode: "HTML" });
