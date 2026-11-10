@@ -1,4 +1,8 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
+
+// El cliente usa el esquema público sin tipos generados; evita que ReturnType
+// colapse las tablas a never al reutilizarlo en helpers.
+type Db = SupabaseClient<any, any, any, any, any>;
 
 /** Sincroniza ligas de football-data.org y Conference League mediante fuentes alternativas. */
 const PROVIDER = "football-data.org";
@@ -63,7 +67,7 @@ async function fetchMatches(code: string, year: number, token: string, from: str
   return body.matches ?? [];
 }
 
-async function upsertTeam(db: ReturnType<typeof createClient>, team: Team, competitionId: string, season: string) {
+async function upsertTeam(db: Db, team: Team, competitionId: string, season: string) {
   const id = internalId(TEAM_ID_OFFSET, team.id);
   const { error } = await db.from("equipos").upsert({
     id,
@@ -157,7 +161,7 @@ function conferenceHistoricalRecord(match: ApiFixture, year: number) {
   };
 }
 
-async function saveConferenceFixture(db: ReturnType<typeof createClient>, match: ApiFixture, year: number) {
+async function saveConferenceFixture(db: Db, match: ApiFixture, year: number) {
   const competitionId = "848";
   const season = seasonLabel(year);
   const homeTeam: Team = { ...match.teams.home, id: stableHash("team|" + match.teams.home.name) };
@@ -219,7 +223,7 @@ async function fetchOpenMatchdayConferenceFixtures(year: number, from: string, t
 }
 
 async function saveOpenMatchdayConferenceFixture(
-  db: ReturnType<typeof createClient>,
+  db: Db,
   match: { round: number; date: string; time: string; home: string; away: string },
   year: number,
 ) {
@@ -242,7 +246,7 @@ async function saveOpenMatchdayConferenceFixture(
   if (error) throw error;
 }
 
-async function syncConferenceLeague(db: ReturnType<typeof createClient>, year: number, from: string, to: string) {
+async function syncConferenceLeague(db: Db, year: number, from: string, to: string) {
   const competitionId = "848";
   const season = seasonLabel(year);
   const { error: compError } = await db.from("competiciones").upsert({
@@ -424,7 +428,7 @@ Deno.serve(async (request) => {
     else outcomes.push({ competicion: "3", estado: "UNAVAILABLE_FREE_TIER" });
 
     const partial = outcomes.some((item) => item.estado === "FAILED");
-    const totals = outcomes.reduce((sum, item) => ({
+    const totals = outcomes.reduce<{ vistos: number; guardados: number }>((sum, item) => ({
       vistos: sum.vistos + Number(item.partidos_vistos ?? 0),
       guardados: sum.guardados + Number(item.partidos_guardados ?? 0),
     }), { vistos: 0, guardados: 0 });
