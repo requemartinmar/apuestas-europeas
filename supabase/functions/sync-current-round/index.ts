@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { MAX_API_FOOTBALL_PAGES, openMatchdayTimeToUtc, stableHash } from "./conference-helpers.ts";
+import { MAX_API_FOOTBALL_PAGES, conferenceFixtureHash, conferenceHistoricalId, openMatchdayTimeToUtc, stableHash } from "./conference-helpers.ts";
 
 // El cliente usa el esquema público sin tipos generados; evita que ReturnType
 // colapse las tablas a never al reutilizarlo en helpers.
@@ -146,10 +146,12 @@ async function fetchApiFootballSeason(year: number, from?: string, to?: string):
 
 function conferenceHistoricalRecord(match: ApiFixture, year: number) {
   const date = match.fixture.date;
+  const season = seasonLabel(year);
   return {
+    id: conferenceHistoricalId(season, date.slice(0, 10), match.teams.home.name, match.teams.away.name),
     league_code: "UECL",
     league_name: "UEFA Conference League",
-    season: seasonLabel(year),
+    season,
     match_date: date.slice(0, 10),
     kickoff_time: date.slice(11, 16) || null,
     home_team: match.teams.home.name,
@@ -166,6 +168,7 @@ function conferenceHistoricalRecord(match: ApiFixture, year: number) {
     away_yellow: null,
     home_red: null,
     away_red: null,
+    source: "API-Football",
   };
 }
 
@@ -177,7 +180,7 @@ async function saveConferenceFixture(db: Db, match: ApiFixture, year: number) {
   const homeId = await upsertTeam(db, homeTeam, competitionId, season);
   const awayId = await upsertTeam(db, awayTeam, competitionId, season);
   const state = apiFixtureStatus(match.fixture.status.short);
-  const stableMatchId = stableHash(["match", season, match.teams.home.name, match.teams.away.name].join("|"));
+  const stableMatchId = conferenceFixtureHash(season, match.fixture.date.slice(0, 10), match.teams.home.name, match.teams.away.name);
   const { error } = await db.from("partidos").upsert({
     id: internalId(MATCH_ID_OFFSET, stableMatchId),
     competid_id: competitionId,
@@ -235,7 +238,7 @@ async function saveOpenMatchdayConferenceFixture(
   const homeId = await upsertTeam(db, homeTeam, competitionId, season);
   const awayId = await upsertTeam(db, awayTeam, competitionId, season);
   const kickoff = openMatchdayTimeToUtc(match.date, match.time);
-  const id = internalId(MATCH_ID_OFFSET, stableHash(["match", season, match.home, match.away].join("|")));
+  const id = internalId(MATCH_ID_OFFSET, conferenceFixtureHash(season, match.date, match.home, match.away));
   const { error } = await db.from("partidos").upsert({
     id, competid_id: competitionId, temporada: season, jornada: match.round,
     jornada_nombre: "Jornada " + match.round, fecha_utc: kickoff,
@@ -432,7 +435,7 @@ Deno.serve(async (request) => {
     if (europaError) outcomes.push({ competicion: "3", estado: "FAILED", error: europaError.message });
     else outcomes.push({ competicion: "3", estado: "UNAVAILABLE_FREE_TIER" });
 
-    const partial = outcomes.some((item) => item.estado === "FAILED" || item.estado === "PARTIAL");
+    const partial = outcomes.some((item) => item.estado === "FAILED" || item.estado === "PARTIAL" || item.estado === "NO_FIXTURES");
     const totals = outcomes.reduce<{ vistos: number; guardados: number }>((sum, item) => ({
       vistos: sum.vistos + Number(item.partidos_vistos ?? 0),
       guardados: sum.guardados + Number(item.partidos_guardados ?? 0),
