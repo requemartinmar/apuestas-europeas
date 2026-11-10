@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { MAX_API_FOOTBALL_PAGES, madridLocalTimeToUtc, stableHash } from "./conference-helpers.ts";
+import { MAX_API_FOOTBALL_PAGES, openMatchdayTimeToUtc, stableHash } from "./conference-helpers.ts";
 
 // El cliente usa el esquema público sin tipos generados; evita que ReturnType
 // colapse las tablas a never al reutilizarlo en helpers.
@@ -234,7 +234,7 @@ async function saveOpenMatchdayConferenceFixture(
   const awayTeam: Team = { id: stableHash("team|" + match.away), name: match.away };
   const homeId = await upsertTeam(db, homeTeam, competitionId, season);
   const awayId = await upsertTeam(db, awayTeam, competitionId, season);
-  madridLocalTimeToUtc(match.date, match.time);
+  openMatchdayTimeToUtc(match.date, match.time);
   const id = internalId(MATCH_ID_OFFSET, stableHash(["match", match.date, match.home, match.away].join("|")));
   const { error } = await db.from("partidos").upsert({
     id, competid_id: competitionId, temporada: season, jornada: match.round,
