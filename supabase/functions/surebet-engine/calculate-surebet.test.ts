@@ -22,8 +22,8 @@ const offer = (selectionKey: string, odds: number, overrides: Partial<OddsOffer>
 Deno.test("detecta arbitraje de dos resultados", () => {
   const result = calculateSurebet([offer("home", 2.1), offer("away", 2.05)], 100);
   if (!result) throw new Error("Se esperaba oportunidad");
-  assertAlmostEquals(result.inverseOddsSum, 0.964144, 0.00001);
-  assertAlmostEquals(result.theoreticalProfitPercent, 3.716, 0.01);
+  assertAlmostEquals(result.inverseOddsSum, 0.96399535, 0.0000001);
+  assertAlmostEquals(result.theoreticalProfitPercent, 3.73494, 0.001);
 });
 
 Deno.test("detecta arbitraje 1X2 con cobertura de tres resultados", () => {
