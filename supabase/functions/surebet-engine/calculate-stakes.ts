@@ -36,31 +36,28 @@ export function calculateStakes(
   }
   if (!Number.isFinite(inverseSum) || inverseSum >= 1) return null;
 
+  const exactShares = offers.map(
+    (offer) => totalCents * ((1 / offer.odds) / inverseSum),
+  );
+  if (exactShares.some((share) => !Number.isFinite(share) || share < 0)) return null;
+
   const parts = offers.map((offer, index) => {
-    const exactCents = totalCents * ((1 / offer.odds) / inverseSum);
-    if (!Number.isFinite(exactCents) || exactCents < 0) return null;
+    const exactCents = exactShares[index];
     const floorCents = Math.floor(exactCents);
     return { offer, index, cents: floorCents, remainder: exactCents - floorCents };
   });
-  if (parts.some((part) => part === null)) return null;
 
-  const validParts = parts as Array<{
-    offer: OddsOffer;
-    index: number;
-    cents: number;
-    remainder: number;
-  }>;
-  const assignedCents = validParts.reduce((sum, part) => sum + part.cents, 0);
+  const assignedCents = parts.reduce((sum, part) => sum + part.cents, 0);
   const remaining = totalCents - assignedCents;
-  if (!Number.isSafeInteger(assignedCents) || remaining < 0 || remaining > validParts.length) return null;
+  if (!Number.isSafeInteger(assignedCents) || remaining < 0 || remaining >= parts.length) return null;
 
-  const byRemainder = [...validParts].sort(
+  const byRemainder = [...parts].sort(
     (a, b) => b.remainder - a.remainder || a.index - b.index,
   );
   for (let i = 0; i < remaining; i++) byRemainder[i].cents += 1;
 
   const allocations: StakeAllocation[] = [];
-  for (const { offer, cents } of validParts) {
+  for (const { offer, cents } of parts) {
     const payoutCents = Math.round(cents * offer.odds);
     if (!Number.isSafeInteger(payoutCents) || payoutCents < 0) return null;
     allocations.push({
