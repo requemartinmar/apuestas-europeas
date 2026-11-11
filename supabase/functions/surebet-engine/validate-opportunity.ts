@@ -12,7 +12,14 @@ export function validateOpportunity(
     offers: [],
   });
 
-  if (!Number.isFinite(options.nowMs) || !Number.isFinite(options.maxAgeMs) || options.maxAgeMs < 0) {
+  const futureSkew = options.maxFutureSkewMs ?? 5_000;
+  if (
+    !Number.isFinite(options.nowMs) ||
+    !Number.isFinite(options.maxAgeMs) ||
+    options.maxAgeMs < 0 ||
+    !Number.isFinite(futureSkew) ||
+    futureSkew < 0
+  ) {
     return rejected("Configuración temporal inválida");
   }
   if (offers.length < 2 || expectedSelectionKeys.length < 2) {
@@ -20,16 +27,26 @@ export function validateOpportunity(
   }
 
   const expected = new Set(expectedSelectionKeys);
-  if (expected.size !== expectedSelectionKeys.length || expected.has("")) {
+  if (
+    expected.size !== expectedSelectionKeys.length ||
+    expectedSelectionKeys.some((key) => typeof key !== "string" || key.trim().length === 0)
+  ) {
     return rejected("La lista de resultados esperados no es válida");
   }
 
   const first = offers[0];
-  if (!first.eventId || !first.marketKey || !first.period) {
+  if (
+    typeof first.eventId !== "string" || first.eventId.trim().length === 0 ||
+    typeof first.marketKey !== "string" || first.marketKey.trim().length === 0 ||
+    typeof first.period !== "string" || first.period.trim().length === 0 ||
+    (first.line !== null && !Number.isFinite(first.line))
+  ) {
     return rejected("Falta identidad canónica del evento o del mercado");
   }
 
   const seen = new Set<string>();
+  let hasExpiredOffer = false;
+
   for (const offer of offers) {
     if (
       offer.eventId !== first.eventId ||
@@ -38,25 +55,39 @@ export function validateOpportunity(
       offer.line !== first.line
     ) return rejected("Se han mezclado eventos, mercados, periodos o líneas");
 
-    if (!expected.has(offer.selectionKey) || seen.has(offer.selectionKey)) {
+    if (
+      typeof offer.selectionKey !== "string" ||
+      offer.selectionKey.trim().length === 0 ||
+      !expected.has(offer.selectionKey) ||
+      seen.has(offer.selectionKey)
+    ) {
       return rejected("Resultados duplicados o no esperados");
     }
-    if (!offer.bookmaker || !Number.isFinite(offer.odds) || offer.odds <= 1) {
+    if (
+      typeof offer.bookmaker !== "string" ||
+      offer.bookmaker.trim().length === 0 ||
+      !Number.isFinite(offer.odds) ||
+      offer.odds <= 1
+    ) {
       return rejected("Casa o cuota decimal inválida");
     }
-    if (!Number.isFinite(offer.capturedAtMs)) return rejected("Fecha de captura inválida");
+    if (!Number.isFinite(offer.capturedAtMs)) {
+      return rejected("Fecha de captura inválida");
+    }
 
     const ageMs = options.nowMs - offer.capturedAtMs;
-    const futureSkew = options.maxFutureSkewMs ?? 5_000;
-    if (ageMs < -futureSkew) return rejected("La captura tiene una fecha futura anómala");
-    if (ageMs > options.maxAgeMs) {
-      return { status: "EXPIRED", reason: "Las cuotas han caducado", offers: [] };
+    if (ageMs < -futureSkew) {
+      return rejected("La captura tiene una fecha futura anómala");
     }
+    if (ageMs > options.maxAgeMs) hasExpiredOffer = true;
     seen.add(offer.selectionKey);
   }
 
   if (seen.size !== expected.size || [...expected].some((key) => !seen.has(key))) {
     return rejected("No están cubiertos todos los resultados del mercado");
+  }
+  if (hasExpiredOffer) {
+    return { status: "EXPIRED", reason: "Las cuotas han caducado", offers: [] };
   }
 
   return { status: "VALIDATED", offers: [...offers] };
