@@ -54,6 +54,17 @@ Deno.test("rechaza si el redondeo o el presupuesto no permite beneficio garantiz
   assertEquals(calculateStakes([offer("home", 2.1), offer("away", 2.05)], 0.01), null);
 });
 
+Deno.test("rechaza importes con fracciones de céntimo o fuera del rango seguro", () => {
+  assertEquals(calculateStakes([offer("home", 2.1), offer("away", 2.05)], 10.001), null);
+  assertEquals(calculateStakes([offer("home", 2.1), offer("away", 2.05)], Number.MAX_SAFE_INTEGER), null);
+});
+
+Deno.test("rechaza cuotas y casas inválidas en el reparto", () => {
+  assertEquals(calculateStakes([
+    offer("home", 2.1), offer("away", 2.05, { bookmaker: "   " }),
+  ], 100), null);
+});
+
 Deno.test("selecciona la mejor cuota por resultado sin mezclar eventos", () => {
   const selected = selectBestCompleteMarketOffers([
     offer("home", 2.0),
@@ -95,4 +106,52 @@ Deno.test("rechaza mezcla de mercados y caduca cuotas antiguas", () => {
   );
   assertEquals(expired.status, "EXPIRED");
   assertNotEquals(expired.reason, undefined);
+});
+
+Deno.test("rechaza maxFutureSkewMs negativo, NaN e infinito", () => {
+  for (const maxFutureSkewMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const result = validateOpportunity(
+      [offer("home", 2.1), offer("away", 2.2)],
+      ["home", "away"],
+      { nowMs: NOW, maxAgeMs: 30_000, maxFutureSkewMs },
+    );
+    assertEquals(result.status, "REJECTED");
+  }
+});
+
+Deno.test("rechaza identificadores, resultados y casas vacíos", () => {
+  assertEquals(validateOpportunity(
+    [offer("home", 2.1, { eventId: "   " }), offer("away", 2.2, { eventId: "   " })],
+    ["home", "away"],
+    { nowMs: NOW, maxAgeMs: 30_000 },
+  ).status, "REJECTED");
+
+  assertEquals(validateOpportunity(
+    [offer("home", 2.1), offer("away", 2.2, { bookmaker: "  " })],
+    ["home", "away"],
+    { nowMs: NOW, maxAgeMs: 30_000 },
+  ).status, "REJECTED");
+
+  assertEquals(validateOpportunity(
+    [offer("home", 2.1), offer("away", 2.2)],
+    ["home", "  "],
+    { nowMs: NOW, maxAgeMs: 30_000 },
+  ).status, "REJECTED");
+});
+
+Deno.test("rechaza línea no finita y prioriza datos inválidos sobre caducidad", () => {
+  assertEquals(validateOpportunity(
+    [offer("home", 2.1, { line: Number.NaN }), offer("away", 2.2, { line: Number.NaN })],
+    ["home", "away"],
+    { nowMs: NOW, maxAgeMs: 30_000 },
+  ).status, "REJECTED");
+
+  assertEquals(validateOpportunity(
+    [
+      offer("home", 2.1, { capturedAtMs: NOW - 60_000 }),
+      offer("away", 1, { capturedAtMs: NOW - 60_000 }),
+    ],
+    ["home", "away"],
+    { nowMs: NOW, maxAgeMs: 30_000 },
+  ).status, "REJECTED");
 });
