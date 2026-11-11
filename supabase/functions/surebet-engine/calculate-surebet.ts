@@ -9,7 +9,9 @@ export function calculateSurebet(
   offers: readonly OddsOffer[],
   totalStake: number,
 ): SurebetCalculation | null {
-  if (!Number.isFinite(totalStake) || totalStake <= 0 || offers.length < 2) return null;
+  if (!Number.isFinite(totalStake) || totalStake <= 0 || offers.length < 2) {
+    return null;
+  }
 
   const seen = new Set<string>();
   let inverseOddsSum = 0;

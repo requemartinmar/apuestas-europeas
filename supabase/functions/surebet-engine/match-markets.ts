@@ -11,7 +11,10 @@ export function selectBestCompleteMarketOffers(
   if (offers.length === 0 || expectedSelectionKeys.length < 2) return null;
 
   const expected = [...new Set(expectedSelectionKeys)];
-  if (expected.length !== expectedSelectionKeys.length || expected.some((key) => !key)) return null;
+  if (
+    expected.length !== expectedSelectionKeys.length ||
+    expected.some((key) => !key)
+  ) return null;
 
   const first = offers[0];
   if (!first.eventId || !first.marketKey || !first.period) return null;
@@ -28,7 +31,9 @@ export function selectBestCompleteMarketOffers(
     if (!Number.isFinite(offer.odds) || offer.odds <= 1) continue;
 
     const current = best.get(offer.selectionKey);
-    if (!current || offer.odds > current.odds) best.set(offer.selectionKey, offer);
+    if (!current || offer.odds > current.odds) {
+      best.set(offer.selectionKey, offer);
+    }
   }
 
   if (best.size !== expected.length) return null;

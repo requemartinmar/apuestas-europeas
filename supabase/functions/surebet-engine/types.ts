@@ -34,7 +34,11 @@ export interface SurebetCalculation {
   totalStake: number;
 }
 
-export type OpportunityStatus = "REJECTED" | "THEORETICAL" | "VALIDATED" | "EXPIRED";
+export type OpportunityStatus =
+  | "REJECTED"
+  | "THEORETICAL"
+  | "VALIDATED"
+  | "EXPIRED";
 
 export interface ValidationResult {
   status: OpportunityStatus;

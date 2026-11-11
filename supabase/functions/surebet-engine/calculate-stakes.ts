@@ -8,7 +8,9 @@ export function calculateStakes(
   offers: readonly OddsOffer[],
   totalStake: number,
 ): StakeAllocation[] | null {
-  if (!Number.isFinite(totalStake) || totalStake <= 0 || offers.length < 2) return null;
+  if (!Number.isFinite(totalStake) || totalStake <= 0 || offers.length < 2) {
+    return null;
+  }
 
   const rawTotalCents = totalStake * 100;
   const totalCents = Math.round(rawTotalCents);
@@ -39,17 +41,27 @@ export function calculateStakes(
   const exactShares = offers.map(
     (offer) => totalCents * ((1 / offer.odds) / inverseSum),
   );
-  if (exactShares.some((share) => !Number.isFinite(share) || share < 0)) return null;
+  if (exactShares.some((share) => !Number.isFinite(share) || share < 0)) {
+    return null;
+  }
 
   const parts = offers.map((offer, index) => {
     const exactCents = exactShares[index];
     const floorCents = Math.floor(exactCents);
-    return { offer, index, cents: floorCents, remainder: exactCents - floorCents };
+    return {
+      offer,
+      index,
+      cents: floorCents,
+      remainder: exactCents - floorCents,
+    };
   });
 
   const assignedCents = parts.reduce((sum, part) => sum + part.cents, 0);
   const remaining = totalCents - assignedCents;
-  if (!Number.isSafeInteger(assignedCents) || remaining < 0 || remaining >= parts.length) return null;
+  if (
+    !Number.isSafeInteger(assignedCents) || remaining < 0 ||
+    remaining >= parts.length
+  ) return null;
 
   const byRemainder = [...parts].sort(
     (a, b) => b.remainder - a.remainder || a.index - b.index,

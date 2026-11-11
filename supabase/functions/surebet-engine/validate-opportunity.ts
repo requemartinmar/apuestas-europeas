@@ -29,7 +29,9 @@ export function validateOpportunity(
   const expected = new Set(expectedSelectionKeys);
   if (
     expected.size !== expectedSelectionKeys.length ||
-    expectedSelectionKeys.some((key) => typeof key !== "string" || key.trim().length === 0)
+    expectedSelectionKeys.some((key) =>
+      typeof key !== "string" || key.trim().length === 0
+    )
   ) {
     return rejected("La lista de resultados esperados no es válida");
   }
@@ -37,7 +39,8 @@ export function validateOpportunity(
   const first = offers[0];
   if (
     typeof first.eventId !== "string" || first.eventId.trim().length === 0 ||
-    typeof first.marketKey !== "string" || first.marketKey.trim().length === 0 ||
+    typeof first.marketKey !== "string" ||
+    first.marketKey.trim().length === 0 ||
     typeof first.period !== "string" || first.period.trim().length === 0 ||
     (first.line !== null && !Number.isFinite(first.line))
   ) {
@@ -83,7 +86,9 @@ export function validateOpportunity(
     seen.add(offer.selectionKey);
   }
 
-  if (seen.size !== expected.size || [...expected].some((key) => !seen.has(key))) {
+  if (
+    seen.size !== expected.size || [...expected].some((key) => !seen.has(key))
+  ) {
     return rejected("No están cubiertos todos los resultados del mercado");
   }
   if (hasExpiredOffer) {
