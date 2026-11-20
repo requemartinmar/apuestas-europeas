@@ -337,7 +337,7 @@
         }
         const analysed=matches.map(m=>({m,model:matchModel(m,historyByLeague,aliasMap,leagueBaseline)}));
         const future=analysed.filter(x=>!x.m.local_record&&x.model&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>Date.now()).sort((a,b)=>b.model.score-a.model.score);
-        const normalizeTopName=value=>String(value??'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+        const normalizeTopName=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
         const isTopFixture=m=>{
           const competitionId=String(m.competid_id??'');
           const competition=normalizeTopName(m.competition_name??competitionsById(competitionId));
