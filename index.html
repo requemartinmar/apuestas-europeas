@@ -337,7 +337,15 @@
         }
         const analysed=matches.map(m=>({m,model:matchModel(m,historyByLeague,aliasMap,leagueBaseline)}));
         const future=analysed.filter(x=>!x.m.local_record&&x.model&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>Date.now()).sort((a,b)=>b.model.score-a.model.score);
-        const ranked=future.slice(0,3);
+        const normalizeTopName=value=>String(value??'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+        const isTopFixture=m=>{
+          const competitionId=String(m.competid_id??'');
+          const competition=normalizeTopName(m.competition_name??competitionsById(competitionId));
+          if(competitionId==='140'||competitionId==='39'||competition==='laliga'||competition==='premier league')return true;
+          const teams=[normalizeTopName(m.equipo_local?.nombre??m.home_name),normalizeTopName(m.equipo_visitante?.nombre??m.away_name)];
+          return teams.some(name=>name.includes('bayern')||name.includes('juventus')||name.split(' ').includes('inter')||name.includes('internazionale')||name.split(' ').includes('milan')||name.includes('como')||name.includes('paris saint germain')||name.split(' ').includes('psg'));
+        };
+        const ranked=future.filter(x=>isTopFixture(x.m)).slice(0,3);
         if(!ranked.length){
           topRoot.innerHTML='<div class="top3-empty">No hay próximos partidos con histórico individual suficiente. LaLiga, Premier League, Bundesliga y Serie A disponen de datos por equipo; otras competiciones necesitan su propio histórico y equivalencias.</div>';
           $('#top3-status').textContent='Sin muestra suficiente';
