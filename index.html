@@ -187,7 +187,22 @@
   <script>
     const competitions={all:{id:'all',name:'Todas hoy'},laliga:{id:'140',name:'LaLiga'},'premier-league':{id:'39',name:'Premier League'},bundesliga:{id:'78',name:'Bundesliga'},'serie-a':{id:'135',name:'Serie A'},'champions-league':{id:'2',name:'Champions League'},'europa-league':{id:'3',name:'Europa League'},'conference-league':{id:'848',name:'Conference League'}};
     const SUPABASE_URL='https://ieqwkcznmbvewtavbpbn.supabase.co',SUPABASE_PUBLISHABLE_KEY='sb_publishable_b1DCBTU0VrJz0pAY4Gx3lg_2mpCB-ev';
-    const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY),$=s=>document.querySelector(s),STORE_KEY='cancha.personal.records.v1';
+    const MATCH_CACHE_KEY='cancha.matches.cache.v1';
+    const resilientFetch=async(input,init)=>{
+      const requestUrl=typeof input==='string'?input:(input&&input.url)||String(input);
+      const method=String(init?.method||(input&&input.method)||'GET').toUpperCase();
+      const shouldRetry=method==='GET'&&requestUrl.startsWith(SUPABASE_URL+'/rest/v1/');
+      for(let attempt=0;attempt<2;attempt++){
+        try{
+          const response=await fetch(input,init);
+          if(!shouldRetry||response.status<500||attempt===1)return response;
+        }catch(error){
+          if(!shouldRetry||error?.name==='AbortError'||attempt===1)throw error;
+        }
+        await new Promise(resolve=>setTimeout(resolve,900));
+      }
+    };
+    const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{global:{fetch:resilientFetch}}),$=s=>document.querySelector(s),STORE_KEY='cancha.personal.records.v1';
     const localDate=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`};
     const state={competition:competitions.all,rows:[],manual:readStored(),date:localDate(new Date()),demo:false};
     const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -350,7 +365,28 @@
         badge.textContent='No disponible';
       }
     }
-    async function loadMatches(){const badge=$('#supabase-status'),msg=$('#connection-message');$('#sync-status').textContent='Cargando';setEmpty('Cargando partidos','Leyendo los encuentros de la fecha seleccionada.');msg.textContent='';msg.classList.remove('error');try{const {data:comps,error:ce}=await db.from('competiciones').select('id,nombre,temporada_actual,activo').eq('activo',true);if(ce)throw ce;const ids=(comps??[]).map(c=>String(c.id));const season=(comps??[]).map(c=>c.temporada_actual).filter(Boolean).sort().at(-1);$('#season-label').textContent=season??'Temporada actual';const {from,to}=dayBounds(state.date);let query=db.from('partidos').select('id,competid_id,temporada,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,sincronizado_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre,escudo_url),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre,escudo_url),estadisticas:estadisticas_partido(id,posesion_local,posesion_visitante,tiros_puerta_local,tiros_puerta_visitante,corners_local,corners_visitante,tarjetas_amarillas_local,tarjetas_amarillas_visitante,tarjetas_rojas_local,tarjetas_rojas_visitante,fuente,capturado_at)').eq('temporada',season).gte('fecha_utc',from).lte('fecha_utc',to).order('fecha_utc',{ascending:true}).limit(1000);if(state.competition.id!=='all')query=query.eq('competid_id',state.competition.id);else if(ids.length)query=query.in('competid_id',ids);const {data,error}=await query;if(error)throw error;state.rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));loadPredictions(state.rows);badge.className='source-pill connected';badge.innerHTML='<i class="dot"></i> Supabase conectado';msg.textContent=`${state.rows.length} partidos de proveedor · ${state.manual.filter(m=>dayOf(m.fecha_utc)===state.date).length} registros personales`;render()}catch(error){console.error(error);state.rows=[];badge.className='source-pill error';badge.innerHTML='<i class="dot"></i> Error de conexión';msg.textContent=error.message||'Error al consultar Supabase.';msg.classList.add('error');setEmpty('No se pudieron cargar los partidos','Comprueba la conexión y las políticas de lectura de Supabase. Tus registros locales siguen disponibles.');renderSaved()}}
+    async function loadMatches(){const badge=$('#supabase-status'),msg=$('#connection-message');$('#sync-status').textContent='Cargando';setEmpty('Cargando partidos','Leyendo los encuentros de la fecha seleccionada.');msg.textContent='';msg.classList.remove('error');try{const {data:comps,error:ce}=await db.from('competiciones').select('id,nombre,temporada_actual,activo').eq('activo',true);if(ce)throw ce;const ids=(comps??[]).map(c=>String(c.id));const season=(comps??[]).map(c=>c.temporada_actual).filter(Boolean).sort().at(-1);$('#season-label').textContent=season??'Temporada actual';const {from,to}=dayBounds(state.date);let query=db.from('partidos').select('id,competid_id,temporada,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,sincronizado_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre,escudo_url),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre,escudo_url),estadisticas:estadisticas_partido(id,posesion_local,posesion_visitante,tiros_puerta_local,tiros_puerta_visitante,corners_local,corners_visitante,tarjetas_amarillas_local,tarjetas_amarillas_visitante,tarjetas_rojas_local,tarjetas_rojas_visitante,fuente,capturado_at)').eq('temporada',season).gte('fecha_utc',from).lte('fecha_utc',to).order('fecha_utc',{ascending:true}).limit(1000);if(state.competition.id!=='all')query=query.eq('competid_id',state.competition.id);else if(ids.length)query=query.in('competid_id',ids);const {data,error}=await query;if(error)throw error;state.rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));try{localStorage.setItem(MATCH_CACHE_KEY,JSON.stringify({date:state.date,competition:state.competition.id,savedAt:new Date().toISOString(),rows:state.rows}))}catch(cacheError){console.warn('No se pudo guardar la caché de partidos:',cacheError)}loadPredictions(state.rows);badge.className='source-pill connected';badge.innerHTML='<i class="dot"></i> Supabase conectado';msg.textContent=`${state.rows.length} partidos de proveedor · ${state.manual.filter(m=>dayOf(m.fecha_utc)===state.date).length} registros personales`;render()}catch(error){
+        console.error(error);
+        let cached=null;
+        try{cached=JSON.parse(localStorage.getItem(MATCH_CACHE_KEY)||'null')}catch(cacheError){console.warn('Caché de partidos no válida:',cacheError)}
+        if(cached&&cached.date===state.date&&cached.competition===state.competition.id&&Array.isArray(cached.rows)){
+          state.rows=cached.rows;
+          loadPredictions(state.rows);
+          badge.className='source-pill error';
+          badge.innerHTML='<i class="dot"></i> Última carga guardada';
+          msg.textContent='Supabase no ha respondido. Mostrando '+state.rows.length+' partidos guardados el '+new Date(cached.savedAt).toLocaleString('es-ES')+'.';
+          msg.classList.add('error');
+          render();
+          return;
+        }
+        state.rows=[];
+        badge.className='source-pill error';
+        badge.innerHTML='<i class="dot"></i> Error de conexión';
+        msg.textContent=error.message||'Error al consultar Supabase.';
+        msg.classList.add('error');
+        setEmpty('No se pudieron cargar los partidos','No se pudo conectar con Supabase. Tus registros personales locales siguen disponibles.');
+        renderSaved()
+      }}
     function setEntry(id,value){const el=$(`#entry-${id}`);if(el)el.value=value??''}
     function pickMatch(){const id=$('#match-picker').value;if(!id)return;const m=matchesForView().find(x=>String(x.id)===id);if(!m)return;const h=m.equipo_local?.nombre??m.home_name,a=m.equipo_visitante?.nombre??m.away_name;setEntry('competition',m.competid_id);setEntry('date',dateTimeInput(m.fecha_utc));setEntry('home',h);setEntry('away',a);setEntry('home-goals',m.goles_local);setEntry('away-goals',m.goles_visitante)}
     function saveEntry(){const home=$('#entry-home').value.trim(),away=$('#entry-away').value.trim();if(!home||!away){$('#save-status').textContent='Escribe los dos equipos antes de guardar.';return}const compId=$('#entry-competition').value,comp=Object.values(competitions).find(c=>c.id===compId);const n=id=>{const v=$(`#entry-${id}`).value;return v===''?null:Number(v)};const d=$('#entry-date').value?new Date($('#entry-date').value):new Date();const record={id:`local-${Date.now()}`,local_record:true,linked_match_id:$('#match-picker').value||null,competid_id:compId,competition_name:comp?.name??'Competición',fecha_utc:d.toISOString(),estado:'FINISHED',goles_local:n('home-goals'),goles_visitante:n('away-goals'),home_name:home,away_name:away,personal_stats:{posesion_local:n('pos-home'),posesion_visitante:n('pos-away'),tiros_puerta_local:n('shots-home'),tiros_puerta_visitante:n('shots-away'),corners_local:n('corners-home'),corners_visitante:n('corners-away'),tarjetas_amarillas_local:n('yellow-home'),tarjetas_amarillas_visitante:n('yellow-away'),tarjetas_rojas_local:n('red-home'),tarjetas_rojas_visitante:n('red-away'),fuente:document.querySelector('#match-image').files?.length?'Captura revisada':'Registro manual'},notes:$('#entry-notes').value.trim(),ocr_text:$('#ocr-text').value.trim(),created_at:new Date().toISOString()};state.manual.push(record);try{saveStored();$('#save-status').textContent='Guardado en este navegador.';if(dayOf(record.fecha_utc)===state.date)render();else renderSaved()}catch(error){state.manual.pop();$('#save-status').textContent='No se pudo guardar: almacenamiento del navegador lleno.'}}
