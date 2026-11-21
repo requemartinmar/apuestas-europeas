@@ -242,7 +242,7 @@
       const modal=$('#match-detail-modal');modal.hidden=false;$('#match-detail-title').textContent=home+' – '+away;
       $('#match-detail-meta').textContent=(m.competition_name??competitionsById(m.competid_id))+' · '+dateLabel(m.fecha_utc)+' · '+(m.estado==='FINISHED'?'Finalizado':'Partido');
       $('#match-detail-body').innerHTML='<p class="match-muted">Cargando estadísticas y acontecimientos…</p>';
-      let s=null,events=[],lineups=[],playerStats=[];
+      let s=null,events=[],lineups=[],playerStats=[],confirmedLineups=false;
       if(m.local_record){s=m.personal_stats??null;}
       else{
         const pid=Number(m.id);
@@ -252,6 +252,12 @@
           db.from('partido_alineaciones').select('*').eq('partido_id',pid).order('titular',{ascending:false}).order('dorsal',{ascending:true})
         ]);
         s=statsResult.data??latestStats(m)??null;events=eventsResult.data??[];lineups=lineupResult.data??[];
+        confirmedLineups=lineups.length>0;
+        if(!lineups.length){
+          const {data:recentLineups}=await db.from('partido_alineaciones').select('*').in('equipo',[home,away]).order('capturado_at',{ascending:false}).limit(100);
+          const seenPlayers=new Set();
+          lineups=(recentLineups??[]).filter(p=>{const key=String(p.equipo_id??p.equipo)+':'+String(p.jugador_id);if(seenPlayers.has(key))return false;seenPlayers.add(key);return true;});
+        }
         const playerIds=[...new Set(lineups.map(p=>Number(p.jugador_id)).filter(Number.isFinite))];
         if(playerIds.length){
           const {data}=await db.from('player_match_stats').select('fixture_id,player_id,player_name,team_id,team_name,match_date,minutes_played,is_substitute,position,shots_total,shots_on_target,goals,assists,saves,rating,offsides,passes_total,passes_key,pass_accuracy,tackles_total,tackles_blocks,interceptions,duels_total,duels_won,dribbles_attempts,dribbles_success,dribbles_past,fouls_drawn,fouls_committed,yellow_cards,red_cards,xg,npxg').in('player_id',playerIds).order('match_date',{ascending:false}).limit(500);
@@ -281,20 +287,24 @@
       const kickoff=new Date(m.fecha_utc??0).getTime();
       const numberOrDash=v=>v==null?'—':Number(v).toFixed(Number(v)%1?2:0);
       const playerRowsHtml=(teamRows)=>teamRows.map(p=>{
-        const current=playerStats.find(r=>String(r.player_id)===String(p.jugador_id)&&Number(r.fixture_id)===Number(p.fixture_id));
+        const current=m.estado==='FINISHED'?playerStats.find(r=>String(r.player_id)===String(p.jugador_id)&&Number(r.fixture_id)===Number(p.fixture_id)):null;
         const prior=playerStats.filter(r=>String(r.player_id)===String(p.jugador_id)&&new Date(r.match_date).getTime()<kickoff&&Number(r.minutes_played??0)>0).sort((a,b)=>new Date(b.match_date)-new Date(a.match_date));
         const last5=prior.slice(0,5),consecutiveStarts=prior.findIndex(r=>r.is_substitute===true);
         const startRun=consecutiveStarts<0?prior.length:consecutiveStarts;
         const goalRun=prior.findIndex(r=>Number(r.goals??0)<1);
         const scoringRun=goalRun<0?prior.length:goalRun;
-        const continuity=last5.length?last5.filter(r=>r.is_substitute!==true).length+'/ '+last5.length+' titulares':'sin histórico';
+        const continuity=last5.length?last5.filter(r=>r.is_substitute!==true).length+'/5 titulares':'sin histórico';
         const streak=scoringRun>0?scoringRun+' seguidos marcando':'sin racha goleadora';
-        const stat=(key)=>numberOrDash(current?.[key]);
-        return '<tr><td><b>'+esc(p.jugador)+'</b><small>#'+esc(p.dorsal??'—')+' · '+esc(p.posicion??'—')+'</small></td><td><span class="player-badge">'+(p.titular?'TITULAR':'SUPLENTE')+'</span></td><td>'+stat('minutes_played')+'</td><td>'+stat('goals')+'</td><td>'+stat('assists')+'</td><td>'+stat('shots_total')+'</td><td>'+stat('shots_on_target')+'</td><td>'+stat('xg')+'</td><td>'+stat('fouls_committed')+'</td><td>'+stat('yellow_cards')+'/'+stat('red_cards')+'</td><td>'+stat('passes_total')+'</td><td>'+stat('tackles_total')+'</td><td>'+stat('rating')+'</td><td class="player-form">'+esc(continuity)+'<br>'+esc(startRun)+' titularidades seguidas<br>'+esc(streak)+'</td></tr>';
+        const stat=(key)=>{
+          if(current?.[key]!=null)return numberOrDash(current[key]);
+          const values=last5.map(r=>r[key]).filter(v=>v!=null).map(Number).filter(Number.isFinite);
+          return values.length?numberOrDash(values.reduce((a,b)=>a+b,0)/values.length):'—';
+        };
+        return '<tr><td><b>'+esc(p.jugador)+'</b><small>#'+esc(p.dorsal??'—')+' · '+esc(p.posicion??'—')+'</small></td><td><span class="player-badge">'+(confirmedLineups?(p.titular?'TITULAR':'SUPLENTE'):(p.titular?'TITULAR ÚLTIMO':'SUPLENTE ÚLTIMO'))+'</span></td><td>'+stat('minutes_played')+'</td><td>'+stat('goals')+'</td><td>'+stat('assists')+'</td><td>'+stat('shots_total')+'</td><td>'+stat('shots_on_target')+'</td><td>'+stat('xg')+'</td><td>'+stat('fouls_committed')+'</td><td>'+stat('yellow_cards')+'/'+stat('red_cards')+'</td><td>'+stat('passes_total')+'</td><td>'+stat('tackles_total')+'</td><td>'+stat('rating')+'</td><td class="player-form">'+esc(continuity)+'<br>'+esc(startRun)+' titularidades seguidas<br>'+esc(streak)+'</td></tr>';
       }).join('');
       const teams=[...new Map(lineups.map(p=>[String(p.equipo_id??p.equipo),{id:p.equipo_id,name:p.equipo,formation:p.formacion,rows:lineups.filter(x=>String(x.equipo_id??x.equipo)===String(p.equipo_id??p.equipo))}])).values()];
-      const playerHtml=teams.length?teams.map(team=>'<div class="player-team"><h4>'+esc(team.name)+' <span>· '+esc(team.formation??'formación no disponible')+'</span></h4><div class="player-table-wrap"><table class="player-table"><thead><tr><th>JUGADOR</th><th>ROL</th><th>MIN</th><th>GOL</th><th>ASI</th><th>REM</th><th>AP</th><th>xG</th><th>FALTAS</th><th>TARJ.</th><th>PASES</th><th>ENTR.</th><th>NOTA</th><th>RACHA PREVIA</th></tr></thead><tbody>'+playerRowsHtml(team.rows)+'</tbody></table></div></div>').join(''):'<p class="match-muted">Alineaciones y estadísticas individuales todavía no disponibles para este encuentro. Se mostrarán cuando la fuente las proporcione.</p>';
-      const playerExplain='La continuidad se calcula con los últimos partidos anteriores disponibles del jugador. xG se muestra solo cuando el proveedor entrega ese dato; no se estima ni se inventa.';
+      const playerHtml=teams.length?'<p class="player-explain">'+(confirmedLineups?'Alineación registrada para este partido.':'No hay XI confirmado: se muestran jugadores utilizados en las últimas alineaciones disponibles y medias de sus últimos cinco partidos.')+'</p>'+teams.map(team=>'<div class="player-team"><h4>'+esc(team.name)+' <span>· '+esc(confirmedLineups?(team.formation??'formación no disponible'):'últimas alineaciones registradas')+'</span></h4><div class="player-table-wrap"><table class="player-table"><thead><tr><th>JUGADOR</th><th>ROL</th><th>MIN</th><th>GOL</th><th>ASI</th><th>REM</th><th>AP</th><th>xG</th><th>FALTAS</th><th>TARJ.</th><th>PASES</th><th>ENTR.</th><th>NOTA</th><th>RACHA PREVIA</th></tr></thead><tbody>'+playerRowsHtml(team.rows)+'</tbody></table></div></div>').join(''):'<p class="match-muted">Alineaciones y estadísticas individuales todavía no disponibles para este encuentro. Se mostrarán cuando la fuente las proporcione.</p>';
+      const playerExplain='La continuidad se calcula con los últimos partidos anteriores disponibles del jugador. Para un partido futuro se muestran medias de los últimos cinco partidos y la última titularidad registrada, no una alineación confirmada. xG solo aparece si la fuente lo proporciona.';
       const source=s?.fuente??'Fuente pendiente';
       $('#match-detail-body').innerHTML=
         '<div class="match-detail-score"><div class="match-detail-team">'+esc(home)+'</div><div class="match-detail-result">'+esc(score(m))+'</div><div class="match-detail-team">'+esc(away)+'</div></div>'+
