@@ -255,6 +255,69 @@
       .card{border-radius:14px}
     }
 
+  
+    /* CANCHA 2.0 · premium interface pass — layout and visual hierarchy */
+    :root{--bg:#080d13;--panel:#101a24;--line:#283746;--green:#c7f36b;--muted:#98a6b5}
+    body{background:radial-gradient(ellipse at 78% 0%,#233a27 0,transparent 29%),radial-gradient(ellipse at 4% 13%,#142b42 0,transparent 31%),#080d13}
+    .shell{max-width:1540px;padding:24px clamp(16px,3.3vw,48px) 64px}
+    .topbar{border-bottom:1px solid #ffffff12;padding-bottom:18px}
+    .brand{font-size:22px;letter-spacing:-1px}.brand-mark{width:39px;height:39px;border-radius:13px;background:var(--green);box-shadow:0 0 30px #c7f36b30}
+    .brand small{font-size:11px;letter-spacing:.4px}
+    .product-nav{position:sticky;top:0;z-index:30;margin:0 0 24px;padding:12px 8px;background:#080d13eF;border-bottom:1px solid #ffffff12;backdrop-filter:blur(18px)}
+    .product-nav-link{border-radius:10px;padding:11px 16px}.product-nav-link.is-active{background:#c7f36b18;color:#eaffcf;box-shadow:inset 0 0 0 1px #c7f36b35}.product-nav-link.is-active span{color:var(--green)}
+    .layout{display:block;padding-top:0}.side{display:none}.main{max-width:100%;min-width:0}
+    .heading{margin:8px 0 18px;align-items:flex-end}.heading h1{font-size:clamp(32px,4vw,48px);letter-spacing:-2px;margin:7px 0}.heading p{font-size:14px;max-width:720px}.eyebrow{color:var(--green);letter-spacing:2px}
+    .cancha-hero{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(230px,.7fr);align-items:center;min-height:245px;margin:4px 0 23px;padding:clamp(22px,3vw,38px);border:1px solid #526644;border-radius:22px;background:linear-gradient(105deg,#18291f 0%,#13212a 52%,#101a24 100%);box-shadow:0 22px 65px #0005}
+    .cancha-hero:before{content:"";position:absolute;z-index:-1;inset:0;background:linear-gradient(90deg,#c7f36b0d,transparent 60%);pointer-events:none}
+    .cancha-hero-copy{position:relative;z-index:2}.cancha-kicker{display:inline-flex;color:#d6f6a0;font-size:10px;font-weight:850;letter-spacing:2px}
+    .cancha-hero h2{font-size:clamp(24px,3vw,37px);line-height:1.1;letter-spacing:-1.4px;margin:13px 0 10px}.cancha-hero h2 em{font-style:normal;color:var(--green)}
+    .cancha-hero p{max-width:560px;color:#b5c2c8;font-size:13px;line-height:1.65;margin:0}
+    .cancha-hero-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:19px}.cancha-hero-tags span{border:1px solid #ffffff1a;background:#ffffff09;color:#dbe7d1;border-radius:30px;padding:7px 11px;font-size:10px;font-weight:700}
+    .cancha-hero-art{height:190px;position:relative;display:grid;place-items:center}
+    .hero-orbit{position:absolute;width:180px;height:180px;border:1px solid #c7f36b30;border-radius:50%;transform:rotate(-25deg) scaleY(.48)}
+    .orbit-two{width:240px;height:240px;transform:rotate(32deg) scaleY(.42);border-color:#9fcf7830}
+    .hero-ball{width:92px;height:92px;display:grid;place-items:center;border-radius:50%;font-size:51px;background:radial-gradient(circle at 35% 28%,#efffd2,#b8e875 58%,#527d37);box-shadow:0 0 60px #c7f36b42,0 18px 30px #0006;filter:saturate(.75)}
+    .hero-chip{position:absolute;border:1px solid #c7f36b4a;background:#0c1714d9;color:#d9f6b1;border-radius:7px;padding:6px 9px;font-size:9px;font-weight:850;letter-spacing:1px}
+    .chip-top{top:18px;right:7%}.chip-bottom{bottom:15px;left:8%}
+    .leaguebar{padding:5px 2px 15px;gap:9px}.league{border-radius:30px;padding:10px 15px;background:#111c27;border-color:#2b3c4d}.league.active{background:var(--green);border-color:var(--green);color:#15200c;box-shadow:0 5px 18px #c7f36b20}
+    .grid{display:flex!important;flex-direction:column!important;gap:16px!important}
+    #predictions-card{order:0!important;border-color:#536a42;background:linear-gradient(140deg,#18271f,#111d25 55%,#0f1923);box-shadow:0 18px 55px #0004}
+    #calendar{order:1!important}
+    #comparison-card{order:3!important}#stats-card{order:4!important}
+    .card{border:1px solid #293a4b;border-radius:18px;padding:clamp(15px,2vw,23px);background:linear-gradient(145deg,#121e2a,#0e1721);box-shadow:0 12px 34px #0002}
+    .card-title h2{font-size:15px;letter-spacing:-.3px}.subtle{line-height:1.6}
+    #predictions-card>.card-title:first-child h2{font-size:18px;color:#eaffcf}
+    .top3-card{border:1px solid #4a6042;background:linear-gradient(145deg,#1b2d25,#111e28);border-radius:16px;padding:19px}
+    .top3-card .rank{color:#d7f7a3;background:#c7f36b14;border:1px solid #c7f36b35;border-radius:30px;padding:5px 9px}
+    .top3-score{color:var(--green);font-size:32px}
+    .top3-stats div{background:#0b151c;border:1px solid #ffffff10;border-radius:9px}
+    .fixture{background:linear-gradient(110deg,#142231,#0d1823);border:1px solid #2b3d4f;border-radius:14px;padding:15px;transition:transform .18s,border-color .18s}
+    .fixture:hover{transform:translateY(-2px);border-color:#a8d56c}
+    .fixture-team span{font-weight:700;color:#edf4f8}.fixture-score{font-size:14px}
+    .metric{background:linear-gradient(145deg,#162536,#101a25);border-color:#2c4053;border-radius:14px}
+    .metric strong{color:#eff7e7}.metric strong.muted{color:#8495a6}
+    .pr-card{background:linear-gradient(145deg,#152536,#0d1823);border-color:#30465a;border-radius:15px}
+    .pr-value{color:var(--green)}
+    .action-btn,.day-control button{border-radius:10px;background:#19293a;border-color:#34485b;transition:all .18s}
+    .action-btn:hover,.day-control button:hover{border-color:var(--green);color:var(--green)}
+    .table-wrap{border:1px solid #2b3d4e;border-radius:13px;overflow:auto}
+    table th{background:#172638;color:#aebdca}table td{background:#101b27}
+    .notice{border-radius:14px;background:#142130;border-color:#304255}
+    .foot{border-top:1px solid #ffffff12;padding-top:16px}
+    @media(max-width:760px){
+      .shell{padding:13px 13px 92px}.product-nav{position:fixed;top:auto;bottom:0;left:0;right:0;margin:0;display:grid;grid-template-columns:repeat(4,1fr);padding:7px 5px calc(7px + env(safe-area-inset-bottom));background:#080d13f5;border-top:1px solid #ffffff1c;border-bottom:0}
+      .product-nav-link{display:flex;flex-direction:column;gap:3px;padding:6px 2px;font-size:10px}.product-nav-link span{font-size:17px}
+      .heading{margin:8px 0 14px}.heading h1{font-size:30px}
+      .cancha-hero{grid-template-columns:1fr;min-height:0;padding:21px;margin-bottom:16px;border-radius:17px}
+      .cancha-hero h2{font-size:27px}.cancha-hero-art{height:125px;margin-top:8px}
+      .hero-ball{width:70px;height:70px;font-size:39px}.hero-orbit{width:130px;height:130px}.orbit-two{width:175px;height:175px}
+      .chip-top{top:4px;right:14%}.chip-bottom{bottom:2px;left:13%}
+      .leaguebar{margin:0 -2px 9px}.card{margin-bottom:0}
+      .top3-grid{grid-template-columns:1fr}.top3-card{padding:16px}
+      .fixture{padding:12px 10px;gap:7px}
+    }
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+
   </style>
 </head>
 <body>
@@ -271,7 +334,9 @@
       <aside class="side"><div class="side-label">MI CUENTA</div><a class="nav" href="#personal-card"><span class="ico">✎</span> Añadir datos</a><a class="nav" href="#saved-card"><span class="ico">◷</span> Mis registros</a><div class="side-note"><b>Datos verificables</b>Las estadísticas ausentes se dejan en blanco. Tus apuntes manuales se guardan en este navegador.</div></aside>
       <main class="main">
         
-        <div class="heading"><div><div class="eyebrow">Centro de análisis</div><h1>Fútbol europeo</h1><p>Partidos del día, resultados y estadísticas de las competiciones seguidas.</p><span class="demo-banner" id="demo-banner" role="status">Datos de ejemplo</span></div><div class="date">TEMPORADA ACTUAL<br><strong id="season-label" style="color:#dce7f5;font-size:13px">2026/27</strong></div></div>
+        <div class="heading"><div><div class="eyebrow">Centro de análisis</div><h1>CANCHA 2.0</h1><p>Inteligencia deportiva para analizar partidos, estadísticas y mercados con datos verificables.</p><span class="demo-banner" id="demo-banner" role="status">Datos de ejemplo</span></div><div class="date">TEMPORADA ACTUAL<br><strong id="season-label" style="color:#dce7f5;font-size:13px">2026/27</strong></div></div>
+        
+        <section class="cancha-hero" aria-label="Resumen de CANCHA 2.0"><div class="cancha-hero-copy"><span class="cancha-kicker">MATCH INTELLIGENCE · EUROPA</span><h2>Los datos primero.<br><em>Las decisiones, mejor informadas.</em></h2><p>Explora la jornada, descubre señales estadísticas y compara mercados disponibles sin cuotas inventadas.</p><div class="cancha-hero-tags"><span>✦ Análisis IA</span><span>◉ Cuotas verificadas</span><span>▤ Estadísticas</span></div></div><div class="cancha-hero-art" aria-hidden="true"><div class="hero-orbit orbit-one"></div><div class="hero-orbit orbit-two"></div><div class="hero-ball">⚽</div><div class="hero-chip chip-top">DATA · LIVE</div><div class="hero-chip chip-bottom">CANCHA / 02</div></div></section>
         <div class="leaguebar" id="leaguebar" role="tablist" aria-label="Competiciones"><button class="league active" data-league="all">Todas hoy</button><button class="league" data-league="laliga"><span class="flag">🇪🇸</span>LaLiga</button><button class="league" data-league="premier-league"><span class="flag">🏴</span>Premier League</button><button class="league" data-league="bundesliga"><span class="flag">🇩🇪</span>Bundesliga</button><button class="league" data-league="serie-a"><span class="flag">🇮🇹</span>Serie A</button><button class="league" data-league="champions-league"><span class="flag">🏆</span>Champions</button><button class="league" data-league="europa-league"><span class="flag">🏆</span>Europa League</button><button class="league" data-league="conference-league"><span class="flag">🏆</span>Conference</button></div>
         <div class="grid">
           <section class="card" id="calendar"><div class="card-title"><div><h2 id="matchTitle">Partidos de hoy</h2><span class="subtle">Jornada diaria de las competiciones seleccionadas</span></div><div class="day-control"><button id="day-prev" aria-label="Día anterior">‹</button><input id="match-date" type="date" aria-label="Fecha de partidos"><button id="day-next" aria-label="Día siguiente">›</button><button id="day-today">Hoy</button></div></div><div class="today-label">● <span id="day-label">Hoy</span> · hora peninsular</div><div id="fixtures" class="empty"><div><div class="empty-icon">⚽</div><h3 id="connection-title">Comprobando base de datos</h3><p id="connection-description">Consultando la jornada seleccionada en Supabase.</p><span class="hint" id="connection-hint">Sin resultados ficticios · Sin cuotas inventadas</span></div></div><p id="connection-message" class="connection-message" role="status" aria-live="polite"></p></section>
