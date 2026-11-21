@@ -151,6 +151,7 @@
     }
 
   
+    .comparison-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px}.comparison-metric{background:#111c2b;border:1px solid #29394d;border-radius:10px;padding:12px}.comparison-metric span{display:block;color:var(--muted);font-size:10px}.comparison-metric strong{display:block;color:var(--green);font-size:19px;margin-top:5px;font-variant-numeric:tabular-nums}.comparison-table{width:100%;min-width:620px}.comparison-table td,.comparison-table th{font-size:10px;padding:9px 7px}
     .match-modal[hidden]{display:none}.match-modal{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:18px;background:#030711c9;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
     .match-modal-panel{width:min(920px,100%);max-height:90vh;overflow:auto;background:#0e1725;border:1px solid #31445c;border-radius:18px;box-shadow:0 24px 90px #000b;padding:20px}
     .match-modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;margin-bottom:15px}.match-modal-head h2{font-size:18px;margin:0 0 4px}.match-modal-head p{color:var(--muted);font-size:11px;margin:0}
@@ -183,6 +184,7 @@
         <div class="grid">
           <section class="card" id="calendar"><div class="card-title"><div><h2 id="matchTitle">Partidos de hoy</h2><span class="subtle">Jornada diaria de las competiciones seleccionadas</span></div><div class="day-control"><button id="day-prev" aria-label="Día anterior">‹</button><input id="match-date" type="date" aria-label="Fecha de partidos"><button id="day-next" aria-label="Día siguiente">›</button><button id="day-today">Hoy</button></div></div><div class="today-label">● <span id="day-label">Hoy</span> · hora peninsular</div><div id="fixtures" class="empty"><div><div class="empty-icon">⚽</div><h3 id="connection-title">Comprobando base de datos</h3><p id="connection-description">Consultando la jornada seleccionada en Supabase.</p><span class="hint" id="connection-hint">Sin resultados ficticios · Sin cuotas inventadas</span></div></div><p id="connection-message" class="connection-message" role="status" aria-live="polite"></p></section>
           <section class="card wide" id="predictions-card"><div class="card-title"><div><h2>✦ Top 3 · Señales estadísticas</h2><span class="subtle">Los tres próximos partidos con mejores referencias históricas en la fecha seleccionada</span></div><span class="not-ready" id="top3-status">Calculando</span></div><div id="top3-list"><p class="muted-note">Buscando señales en el histórico de Supabase…</p></div><p class="muted-note">El índice se calcula con un modelo Poisson que combina el ataque reciente de cada equipo y la defensa de su rival. Es una estimación estadística, no una probabilidad calibrada ni una recomendación de apuesta.</p><div style="height:1px;background:#26364b;margin:20px 0"></div><div class="card-title"><div><h2>Referencias estadísticas por partido</h2><span class="subtle">Forma reciente de ambos equipos y rendimiento local / visitante</span></div><span class="not-ready" id="predictions-status">Calculando</span></div><div id="predicciones"><p class="muted-note">Consultando el histórico de la competición…</p></div><p class="muted-note">Estimaciones calculadas con hasta los últimos 12 partidos de cada equipo, dando más peso a sus encuentros como local o visitante. Muestra mínima: 5 partidos por equipo. El histórico individual disponible cubre LaLiga, Premier League, Bundesliga y Serie A; en otras competiciones no se inventan datos.</p></section>
+          <section class="card wide" id="comparison-card"><div class="card-title"><div><h2>◉ Comparativa · Pronóstico vs realidad</h2><span class="subtle">Aciertos del modelo y diferencia frente a las estadísticas finales</span></div><span class="not-ready" id="comparison-status">Cargando</span></div><div id="comparison-summary" class="comparison-grid"><div class="comparison-metric"><span>Pronósticos guardados</span><strong>—</strong></div></div><div class="table-wrap" style="margin-top:14px"><table class="comparison-table"><thead><tr><th>PARTIDO</th><th>PRONÓSTICO</th><th>RESULTADO</th><th>ESTADO</th><th>ERROR GOLES</th></tr></thead><tbody id="comparison-body"><tr><td colspan="5" style="text-align:center;color:#77889f;padding:18px">Consultando comparativas.</td></tr></tbody></table></div><p class="muted-note">Los pronósticos se guardan una sola vez antes del inicio. Los resultados se completan desde partidos y estadísticas verificadas; los mercados sin datos reales no cuentan como aciertos ni errores.</p></section>
           <section class="card"><div class="card-title"><h2>Resumen de competición</h2><span class="status" id="sync-status">Cargando</span></div><div class="metric-grid"><div class="metric"><span>Jornada seleccionada</span><strong class="muted" id="metric-round">—</strong></div><div class="metric"><span>Partidos disputados</span><strong class="muted" id="metric-finished">—</strong></div><div class="metric"><span>Equipos en competición</span><strong class="muted" id="metric-teams">—</strong></div><div class="metric"><span>Última actualización</span><strong class="muted" id="metric-updated">—</strong></div></div><div class="notice"><span class="notice-icon">ⓘ</span><div><b>Las cuotas dependen de una fuente autorizada.</b><br>Se guardarán con proveedor y hora de captura para distinguirlas de las estadísticas del partido.</div></div></section>
           <section class="card wide" id="stats-card"><div class="card-title"><div><h2>Estadísticas por partido</h2><span class="subtle">Posesión · remates · córners · tarjetas · faltas</span></div><span class="not-ready" id="stats-status">Sin datos</span></div><div class="table-wrap"><table><thead><tr><th>COMPETICIÓN / PARTIDO</th><th>MARCADOR</th><th>POSESIÓN</th><th>REMATES</th><th>A PUERTA</th><th>CÓRNERS</th><th>TARJETAS</th><th>FALTAS</th><th>FUENTE</th></tr></thead><tbody id="stats-body"><tr><td colspan="9" style="text-align:center;color:#77889f;padding:22px">Esperando datos.</td></tr></tbody></table></div><p class="muted-note">Las estadísticas se incorporan desde fuentes disponibles y se muestran solo cuando hay datos verificables. Pulsa cualquier partido para abrir su ficha postpartido.</p></section>
           <section class="card personal" id="personal-card"><div class="card-title"><div><h2>Añadir estadísticas de un partido</h2><span class="subtle">Manual o leyendo una captura; revisa y corrige los campos antes de guardar.</span></div></div><label class="span4 muted-note">Partido de la fecha elegida (opcional)<select id="match-picker" class="match-picker"><option value="">Introducir equipos manualmente</option></select></label><div class="personal-grid"><label>Competición<select id="entry-competition"></select></label><label>Fecha y hora<input id="entry-date" type="datetime-local"></label><label>Equipo local<input id="entry-home" placeholder="Equipo local"></label><label>Equipo visitante<input id="entry-away" placeholder="Equipo visitante"></label><label>Goles local<input id="entry-home-goals" type="number" min="0" placeholder="—"></label><label>Goles visitante<input id="entry-away-goals" type="number" min="0" placeholder="—"></label><label>Posesión local %<input id="entry-pos-home" type="number" min="0" max="100" step="0.1"></label><label>Posesión visitante %<input id="entry-pos-away" type="number" min="0" max="100" step="0.1"></label><label>Tiros a puerta local<input id="entry-shots-home" type="number" min="0"></label><label>Tiros a puerta visitante<input id="entry-shots-away" type="number" min="0"></label><label>Córners local<input id="entry-corners-home" type="number" min="0"></label><label>Córners visitante<input id="entry-corners-away" type="number" min="0"></label><label>Amarillas local<input id="entry-yellow-home" type="number" min="0"></label><label>Amarillas visitante<input id="entry-yellow-away" type="number" min="0"></label><label>Rojas local<input id="entry-red-home" type="number" min="0"></label><label>Rojas visitante<input id="entry-red-away" type="number" min="0"></label><label class="span4">Notas para futuros análisis<textarea id="entry-notes" placeholder="Fuente de la captura, observaciones del partido…"></textarea></label><label class="span4">Captura del partido<input id="match-image" type="file" accept="image/*" capture="environment"><img id="image-preview" class="upload-preview" alt="Vista previa de la captura"><div class="personal-actions"><button type="button" class="action-btn" id="read-image">Leer texto de la captura</button><span id="ocr-status" class="muted-note">El OCR se ejecuta en este navegador; comprueba las cifras reconocidas.</span></div></label><label class="span4">Texto reconocido (editable)<textarea id="ocr-text" placeholder="El texto de la imagen aparecerá aquí; comprueba los datos y rellena los campos arriba."></textarea></label></div><div class="personal-actions"><button class="action-btn" id="save-entry" type="button">Guardar registro</button><button class="action-btn" id="clear-entry" type="button">Limpiar formulario</button><span id="save-status" class="muted-note" role="status"></span></div><p class="muted-note">Los registros personales se guardan en el almacenamiento de este navegador y no se envían a Supabase. La captura permanece en el dispositivo.</p></section>
@@ -222,7 +224,7 @@
     };
     const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{global:{fetch:resilientFetch}}),$=s=>document.querySelector(s),STORE_KEY='cancha.personal.records.v1';
     const localDate=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`};
-    const state={competition:competitions.all,rows:[],manual:readStored(),date:localDate(new Date()),demo:false};
+    const state={competition:competitions.all,rows:[],manual:readStored(),date:localDate(new Date()),season:null,demo:false};
     const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const dateLabel=v=>v?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Madrid'}).format(new Date(v)):'Hora pendiente';
     const dayOf=v=>v?new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'Europe/Madrid'}).format(new Date(v)):'';
@@ -299,7 +301,74 @@
     function refreshPicker(rows=matchesForView()){$('#match-picker').innerHTML='<option value="">Introducir equipos manualmente</option>'+rows.map(m=>`<option value="${esc(m.id)}">${esc(m.equipo_local?.nombre??m.home_name)} – ${esc(m.equipo_visitante?.nombre??m.away_name)}</option>`).join('')}
     function renderSaved(){$('#saved-count').textContent=`${state.manual.length} registro${state.manual.length===1?'':'s'}`;$('#saved-records').innerHTML=state.manual.length?state.manual.slice().reverse().map(m=>`<div class="personal-record"><div><strong>${esc(m.home_name)} – ${esc(m.away_name)}</strong><br><small>${esc(m.competition_name)} · ${esc(dateLabel(m.fecha_utc))} · ${esc(m.fuente)}</small><br><small>Posesión ${esc(pair(m.personal_stats.posesion_local,m.personal_stats.posesion_visitante,'%'))} · Tiros ${esc(pair(m.personal_stats.tiros_puerta_local,m.personal_stats.tiros_puerta_visitante))}${m.notes?` · ${esc(m.notes)}`:''}</small></div><button class="action-btn delete-entry" data-id="${esc(m.id)}">Eliminar</button></div>`).join(''):'<p class="muted-note">Todavía no has guardado registros.</p>'}
     // Modelo individual por equipos: forma reciente, rendimiento local/visitante y distribución Poisson.
+    const CANCHA_MODEL_VERSION='cancha-poisson-v1';
     let predictionRequest=0;
+    async function saveCanchaSnapshots(items){
+      const now=Date.now();
+      const rows=(items??[]).filter(x=>!x.m.local_record&&x.model&&x.m.id!=null&&x.m.estado==='SCHEDULED'&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>now)
+        .map(x=>({match_id:Number(x.m.id),competition_id:String(x.m.competid_id??''),kickoff_at:x.m.fecha_utc,home_team:x.m.equipo_local?.nombre??x.m.home_name??'Local',away_team:x.m.equipo_visitante?.nombre??x.m.away_name??'Visitante',model_version:CANCHA_MODEL_VERSION,prediction_payload:{scoreline:x.model.scoreline,lambda_home:x.model.lambdaHome,lambda_away:x.model.lambdaAway,metrics:x.model.metrics,team_metrics:{home:{corners:x.model.home.corners,cards:x.model.home.cards,shots_on_target:x.model.home.sot},away:{corners:x.model.away.corners,cards:x.model.away.cards,shots_on_target:x.model.away.sot}},sample:{home:x.model.home.n,away:x.model.away.n}}}));
+      if(!rows.length)return;
+      const {error}=await db.from('cancha_prediction_snapshots').upsert(rows,{onConflict:'match_id,model_version',ignoreDuplicates:true});
+      if(error)throw error;
+      await loadCanchaComparison();
+    }
+    const comparisonPct=(hits,total)=>total?Math.round(hits/total*100)+'%':'—';
+    function comparisonError(rows,predictedKey,actualKey){
+      const values=rows.map(r=>{
+        let p=null;
+        if(predictedKey==='expected_corners'||predictedKey==='expected_cards'||predictedKey==='expected_shots_on_target'){
+          const key=predictedKey==='expected_corners'?'corners':predictedKey==='expected_cards'?'cards':'shots_on_target';
+          const home=r.prediction_payload?.team_metrics?.home?.[key],away=r.prediction_payload?.team_metrics?.away?.[key];
+          if(home==null||away==null)return null;
+          p=Number(home)+Number(away);
+        }else{
+          const raw=r.prediction_payload?.metrics?.[predictedKey];
+          if(raw==null)return null;
+          p=Number(raw);
+        }
+        const actual=r.actual_payload?.[actualKey];
+        if(actual==null||!Number.isFinite(p)||!Number.isFinite(Number(actual)))return null;
+        return {p,a:Number(actual)};
+      }).filter(Boolean);
+      return values.length?average(values.map(x=>Math.abs(x.p-x.a))).toFixed(2):'—';
+    }
+    async function loadCanchaComparison(){
+      const status=$('#comparison-status'),summary=$('#comparison-summary'),body=$('#comparison-body');
+      if(!status||!summary||!body)return;
+      try{
+        const {data,error}=await db.from('cancha_prediction_snapshots').select('match_id,competition_id,kickoff_at,home_team,away_team,model_version,prediction_payload,actual_payload,status,captured_at').order('kickoff_at',{ascending:false}).limit(500);
+        if(error)throw error;
+        const rows=data??[],settled=rows.filter(r=>r.status==='SETTLED'&&r.actual_payload?.home_goals!=null&&r.actual_payload?.away_goals!=null);
+        const hit=(fn)=>{const valid=settled.map(r=>fn(r)).filter(v=>v!==null);return {hits:valid.filter(Boolean).length,total:valid.length}};
+        const oneX=hit(r=>{const m=r.prediction_payload?.metrics??{},p=[['home',Number(m.home_win_pct)],['draw',Number(m.draw_pct)],['away',Number(m.away_win_pct)]].filter(x=>Number.isFinite(x[1])).sort((a,b)=>b[1]-a[1]);return p.length? p[0][0]===r.actual_payload.result:null});
+        const over15=hit(r=>{const p=Number(r.prediction_payload?.metrics?.over_1_5_pct);return Number.isFinite(p)?(p>=50)===(Number(r.actual_payload.total_goals)>=2):null});
+        const over25=hit(r=>{const p=Number(r.prediction_payload?.metrics?.over_2_5_pct);return Number.isFinite(p)?(p>=50)===(Number(r.actual_payload.total_goals)>=3):null});
+        const btts=hit(r=>{const p=Number(r.prediction_payload?.metrics?.btts_pct);return Number.isFinite(p)?(p>=50)===(Number(r.actual_payload.home_goals)>0&&Number(r.actual_payload.away_goals)>0):null});
+        const exact=hit(r=>{const p=String(r.prediction_payload?.scoreline??'').match(/(\d+)\D+(\d+)/);return p?Number(p[1])===Number(r.actual_payload.home_goals)&&Number(p[2])===Number(r.actual_payload.away_goals):null});
+        const metrics=[
+          ['Pronósticos guardados',String(rows.length)],
+          ['Partidos resueltos',String(settled.length)],
+          ['Pendientes',String(rows.length-settled.length)],
+          ['Acierto 1X2',comparisonPct(oneX.hits,oneX.total)],
+          ['Acierto +1,5 goles',comparisonPct(over15.hits,over15.total)],
+          ['Acierto +2,5 goles',comparisonPct(over25.hits,over25.total)],
+          ['Acierto ambos marcan',comparisonPct(btts.hits,btts.total)],
+          ['Marcador exacto',comparisonPct(exact.hits,exact.total)],
+          ['Error medio goles',comparisonError(settled,'expected_goals','total_goals')],
+          ['Error medio córners',comparisonError(settled,'expected_corners','corners_total')],
+          ['Error medio tarjetas',comparisonError(settled,'expected_cards','cards_total')],
+          ['Error medio tiros a puerta',comparisonError(settled,'expected_shots_on_target','shots_on_target_total')]
+        ];
+        summary.innerHTML=metrics.map(([label,value])=>'<div class="comparison-metric"><span>'+esc(label)+'</span><strong>'+esc(value)+'</strong></div>').join('');
+        body.innerHTML=rows.length?rows.slice(0,12).map(r=>{const p=String(r.prediction_payload?.scoreline??'—'),a=r.actual_payload?.home_goals==null?'—':r.actual_payload.home_goals+' – '+r.actual_payload.away_goals,err=r.actual_payload?.total_goals==null||r.prediction_payload?.metrics?.expected_goals==null?'—':Math.abs(Number(r.prediction_payload.metrics.expected_goals)-Number(r.actual_payload.total_goals)).toFixed(2);return '<tr><td>'+esc(r.home_team)+' – '+esc(r.away_team)+'<br><span class="muted-note">'+esc(dateLabel(r.kickoff_at))+'</span></td><td>'+esc(p)+'</td><td>'+esc(a)+'</td><td>'+esc(r.status==='SETTLED'?'Resuelto':'Pendiente')+'</td><td>'+esc(err)+'</td></tr>'}).join(''):'<tr><td colspan="5" style="text-align:center;color:#77889f;padding:18px">Todavía no hay pronósticos guardados. CANCHA los capturará al abrir la web y calcular los próximos partidos.</td></tr>';
+        status.textContent=settled.length+' resueltos · '+rows.length+' guardados';
+      }catch(error){
+        console.warn('Comparativa CANCHA:',error);
+        status.textContent='No disponible';
+        summary.innerHTML='<div class="pr-empty">No se pudo consultar la comparativa. Comprueba el acceso a la tabla de snapshots.</div>';
+        body.innerHTML='<tr><td colspan="5">Comparativa temporalmente no disponible.</td></tr>';
+      }
+    }
     const predictionMetrics=[
       ['over_1_5_pct','Más de 1.5 goles','pct'],
       ['over_2_5_pct','Más de 2.5 goles','pct'],
@@ -376,18 +445,24 @@
     }
     async function loadPredictions(matches){
       const request=++predictionRequest,root=$('#predicciones'),badge=$('#predictions-status'),topRoot=$('#top3-list');
-      if(!matches?.length){root.innerHTML='<div class="pr-empty">No hay partidos en esta fecha para analizar.</div>';badge.textContent='Sin partidos';topRoot.innerHTML='<div class="top3-empty">No hay encuentros en esta fecha.</div>';$('#top3-status').textContent='Sin partidos';return}
-      badge.textContent='Analizando equipos';root.innerHTML='<p class="muted-note">Calculando forma reciente y rendimiento local/visitante…</p>';
-      topRoot.innerHTML='<p class="muted-note">Comparando los equipos con su histórico individual…</p>';
+      const hasVisibleMatches=!!matches?.length;
+      if(!hasVisibleMatches){root.innerHTML='<div class="pr-empty">No hay partidos en esta fecha para analizar.</div>';badge.textContent='Preparando captura de próximos pronósticos';topRoot.innerHTML='<div class="top3-empty">No hay encuentros en esta fecha.</div>';$('#top3-status').textContent='Sin partidos';}
+      else{badge.textContent='Analizando equipos';root.innerHTML='<p class="muted-note">Calculando forma reciente y rendimiento local/visitante…</p>';topRoot.innerHTML='<p class="muted-note">Comparando los equipos con su histórico individual…</p>';}
       try{
-        const providerMatches=matches.filter(m=>!m.local_record&&m.equipo_local_id!=null&&m.equipo_visitante_id!=null);
+        const selectedProviderMatches=(matches??[]).filter(m=>!m.local_record&&m.equipo_local_id!=null&&m.equipo_visitante_id!=null);
+        let upcomingMatches=[];
+        if(state.season){
+          const from=new Date(),until=new Date(from.getTime()+7*24*60*60*1000);
+          const {data,error}=await db.from('partidos').select('id,competid_id,temporada,fecha_utc,equipo_local_id,equipo_visitante_id,estado,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)').eq('temporada',state.season).eq('estado','SCHEDULED').gt('fecha_utc',from.toISOString()).lt('fecha_utc',until.toISOString()).order('fecha_utc',{ascending:true}).limit(500);
+          if(error)console.warn('No se pudo cargar la ventana de captura de pronósticos:',error);else upcomingMatches=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));
+        }
+        const providerMatches=[...new Map([...selectedProviderMatches,...upcomingMatches].map(m=>[String(m.id),m])).values()];
         const teamIds=[...new Set(providerMatches.flatMap(m=>[String(m.equipo_local_id),String(m.equipo_visitante_id)]))];
         let aliases=[];if(teamIds.length){const {data,error}=await db.from('equipo_alias').select('equipo_id,hist_league,hist_team').in('equipo_id',teamIds);if(error)throw error;aliases=data??[];}
         if(request!==predictionRequest)return;
         const aliasMap=new Map((aliases??[]).map(a=>[String(a.equipo_id),a]));
         const leagueCodes=[...new Set((aliases??[]).map(a=>a.hist_league).filter(Boolean))];
-        const dated=providerMatches.map(m=>String(m.fecha_utc||'').slice(0,10)).filter(Boolean).sort();
-        const latestDate=dated[dated.length-1]||new Date().toISOString().slice(0,10);
+        const latestDate=localDate(new Date(Date.now()+24*60*60*1000));
         const historyResults=await Promise.all(leagueCodes.map(async code=>{
           const {data,error}=await db.from('historical_matches')
             .select('league_code,match_date,home_team,away_team,home_goals,away_goals,home_shots_on_target,away_shots_on_target,home_corners,away_corners,home_yellow,away_yellow,home_red,away_red')
@@ -401,7 +476,10 @@
         for(const [code,rows] of historyByLeague){
           leagueBaseline.set(code,{home:average(rows.map(r=>r.home_goals))??1.45,away:average(rows.map(r=>r.away_goals))??1.2});
         }
-        const analysed=matches.map(m=>({m,model:matchModel(m,historyByLeague,aliasMap,leagueBaseline)}));
+        const analysedAll=providerMatches.map(m=>({m,model:matchModel(m,historyByLeague,aliasMap,leagueBaseline)}));
+        const analysedById=new Map(analysedAll.map(x=>[String(x.m.id),x]));
+        const analysed=(matches??[]).map(m=>analysedById.get(String(m.id))??({m,model:null}));
+        saveCanchaSnapshots(analysedAll).catch(error=>console.warn('No se pudieron guardar los snapshots de CANCHA:',error));
         const future=analysed.filter(x=>!x.m.local_record&&x.model&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>Date.now()).sort((a,b)=>b.model.score-a.model.score);
         const normalizeTopName=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
         const isTopFixture=m=>{
@@ -422,14 +500,14 @@
           }).join('')+'</div>';
           $('#top3-status').textContent=ranked.length+' analizados';
         }
-        root.innerHTML='<div class="pr-grid">'+analysed.map(x=>{
+        root.innerHTML=analysed.length?'<div class="pr-grid">'+analysed.map(x=>{
           const m=x.m,p=x.model,home=m.equipo_local?.nombre??m.home_name??'Local',away=m.equipo_visitante?.nombre??m.away_name??'Visitante';
           if(!p)return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">Sin equivalencia histórica o menos de 5 partidos válidos por equipo. No se muestran medias genéricas.</p></article>';
           const rows=predictionMetrics.map(([k,label,type])=>'<tr><td>'+esc(label)+'</td><td class="pr-value">'+predictionNumber(p.metrics[k],type==='pct')+'</td></tr>').join('');
           return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">'+p.home.n+' partidos recientes de '+esc(home)+' (local: '+p.home.venueN+') · '+p.away.n+' de '+esc(away)+' (visitante: '+p.away.venueN+')</p><p class="pr-sample">Goles estimados: '+predictionNumber(p.lambdaHome)+' – '+predictionNumber(p.lambdaAway)+' · Marcador modal: '+p.scoreline+'</p><table class="pr-table"><thead><tr><th>Indicador del encuentro</th><th>Estimación</th></tr></thead><tbody>'+rows+'</tbody></table></article>';
-        }).join('')+'</div>';
+        }).join('')+'</div>':'<div class="pr-empty">No hay partidos en esta fecha para analizar. La captura de los próximos siete días sigue activa.</div>';
         const total=[...historyByLeague.values()].reduce((sum,rows)=>sum+rows.length,0);
-        badge.textContent=total+' registros · forma por equipo';
+        badge.textContent=hasVisibleMatches?total+' registros · forma por equipo': 'Capturando próximos partidos · '+total+' registros históricos';
       }catch(error){
         if(request!==predictionRequest)return;
         console.error('Modelo por equipos:',error);
@@ -439,7 +517,7 @@
         badge.textContent='No disponible';
       }
     }
-    async function loadMatches(){const badge=$('#supabase-status'),msg=$('#connection-message');$('#sync-status').textContent='Cargando';setEmpty('Cargando partidos','Leyendo los encuentros de la fecha seleccionada.');msg.textContent='';msg.classList.remove('error');try{const {data:comps,error:ce}=await db.from('competiciones').select('id,nombre,temporada_actual,activo').eq('activo',true);if(ce)throw ce;const ids=(comps??[]).map(c=>String(c.id));const season=(comps??[]).map(c=>c.temporada_actual).filter(Boolean).sort().at(-1);$('#season-label').textContent=season??'Temporada actual';const {from,to}=dayBounds(state.date);let query=db.from('partidos').select('id,competid_id,temporada,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,sincronizado_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre,escudo_url),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre,escudo_url),estadisticas:estadisticas_partido(id,posesion_local,posesion_visitante,tiros_puerta_local,tiros_puerta_visitante,tiros_totales_local,tiros_totales_visitante,tiros_fuera_local,tiros_fuera_visitante,tiros_bloqueados_local,tiros_bloqueados_visitante,corners_local,corners_visitante,faltas_local,faltas_visitante,fueras_juego_local,fueras_juego_visitante,paradas_portero_local,paradas_portero_visitante,pases_totales_local,pases_totales_visitante,pases_precisos_local,pases_precisos_visitante,tarjetas_amarillas_local,tarjetas_amarillas_visitante,tarjetas_rojas_local,tarjetas_rojas_visitante,fuente,capturado_at)').eq('temporada',season).gte('fecha_utc',from).lte('fecha_utc',to).order('fecha_utc',{ascending:true}).limit(1000);if(state.competition.id!=='all')query=query.eq('competid_id',state.competition.id);else if(ids.length)query=query.in('competid_id',ids);const {data,error}=await query;if(error)throw error;state.rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));try{localStorage.setItem(MATCH_CACHE_KEY,JSON.stringify({date:state.date,competition:state.competition.id,savedAt:new Date().toISOString(),rows:state.rows}))}catch(cacheError){console.warn('No se pudo guardar la caché de partidos:',cacheError)}loadPredictions(state.rows);badge.className='source-pill connected';badge.innerHTML='<i class="dot"></i> Supabase conectado';msg.textContent=`${state.rows.length} partidos de proveedor · ${state.manual.filter(m=>dayOf(m.fecha_utc)===state.date).length} registros personales`;render()}catch(error){
+    async function loadMatches(){const badge=$('#supabase-status'),msg=$('#connection-message');$('#sync-status').textContent='Cargando';setEmpty('Cargando partidos','Leyendo los encuentros de la fecha seleccionada.');msg.textContent='';msg.classList.remove('error');try{const {data:comps,error:ce}=await db.from('competiciones').select('id,nombre,temporada_actual,activo').eq('activo',true);if(ce)throw ce;const ids=(comps??[]).map(c=>String(c.id));const season=(comps??[]).map(c=>c.temporada_actual).filter(Boolean).sort().at(-1);state.season=season??null;$('#season-label').textContent=season??'Temporada actual';const {from,to}=dayBounds(state.date);let query=db.from('partidos').select('id,competid_id,temporada,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,sincronizado_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre,escudo_url),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre,escudo_url),estadisticas:estadisticas_partido(id,posesion_local,posesion_visitante,tiros_puerta_local,tiros_puerta_visitante,tiros_totales_local,tiros_totales_visitante,tiros_fuera_local,tiros_fuera_visitante,tiros_bloqueados_local,tiros_bloqueados_visitante,corners_local,corners_visitante,faltas_local,faltas_visitante,fueras_juego_local,fueras_juego_visitante,paradas_portero_local,paradas_portero_visitante,pases_totales_local,pases_totales_visitante,pases_precisos_local,pases_precisos_visitante,tarjetas_amarillas_local,tarjetas_amarillas_visitante,tarjetas_rojas_local,tarjetas_rojas_visitante,fuente,capturado_at)').eq('temporada',season).gte('fecha_utc',from).lte('fecha_utc',to).order('fecha_utc',{ascending:true}).limit(1000);if(state.competition.id!=='all')query=query.eq('competid_id',state.competition.id);else if(ids.length)query=query.in('competid_id',ids);const {data,error}=await query;if(error)throw error;state.rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));try{localStorage.setItem(MATCH_CACHE_KEY,JSON.stringify({date:state.date,competition:state.competition.id,savedAt:new Date().toISOString(),rows:state.rows}))}catch(cacheError){console.warn('No se pudo guardar la caché de partidos:',cacheError)}loadPredictions(state.rows);loadCanchaComparison();badge.className='source-pill connected';badge.innerHTML='<i class="dot"></i> Supabase conectado';msg.textContent=`${state.rows.length} partidos de proveedor · ${state.manual.filter(m=>dayOf(m.fecha_utc)===state.date).length} registros personales`;render()}catch(error){
         console.error(error);
         let cached=null;
         try{cached=JSON.parse(localStorage.getItem(MATCH_CACHE_KEY)||'null')}catch(cacheError){console.warn('Caché de partidos no válida:',cacheError)}
