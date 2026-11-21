@@ -165,9 +165,10 @@ Deno.serve(async (req: Request) => {
       );
       const cached = Array.isArray(cachedRows) ? cachedRows[0] : null;
       let fetched: any;
+      const cacheTtl = finished ? 3 * 24 * 60 * 60 * 1000 : 15 * 60 * 1000;
       const cacheFresh = !!cached?.response_body && Number.isFinite(Date.parse(String(cached.fetched_at))) &&
-        Date.now() - Date.parse(String(cached.fetched_at)) < 15 * 60 * 1000;
-      const cacheHit = !finished && cacheFresh;
+        Date.now() - Date.parse(String(cached.fetched_at)) < cacheTtl;
+      const cacheHit = cacheFresh;
       try {
         fetched = cacheHit
           ? { notModified: true, body: null, etag: cached?.etag ?? null }
