@@ -1,12 +1,17 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-const API_BASE = "https://api.odds-api.io/v3";
-const PROVIDER = "Odds-API.io";
+const API_BASE = "https://api.oddspapi.io/v4";
+const PROVIDER = "OddsPapi";
 const BOOKS = [
-  { api: "Betfair Exchange", display: "Betfair Exchange" },
-  { api: "Bet365", display: "Bet365" },
-  { api: "DAZN Bet ES", display: "DAZN Bet" },
+  { api: "betfair-ex", key: "Betfair Exchange", display: "Betfair Exchange" },
+  { api: "bet365", key: "Bet365", display: "Bet365" },
 ];
+const DAZN_LABEL = "DAZN Bet";
+const TARGET_TOURNAMENTS = new Set([
+  "laliga", "premier-league", "bundesliga", "serie-a", "ligue-1",
+  "uefa-champions-league", "uefa-europa-league",
+]);
+const CACHE_TTL = 24 * 60 * 60 * 1000;
 const CORS = {
   "Access-Control-Allow-Origin": "https://apuestas-europeas.vercel.app",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -30,8 +35,8 @@ function response(body: unknown, status = 200) {
 function asArray(value: any): any[] {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.data)) return value.data;
-  if (Array.isArray(value?.events)) return value.events;
   if (Array.isArray(value?.results)) return value.results;
+  if (Array.isArray(value?.fixtures)) return value.fixtures;
   return [];
 }
 function normalizeTeam(value: unknown): string {
@@ -59,56 +64,66 @@ function validPrice(value: unknown): number | null {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) && n > 1 ? n : null;
 }
-function getMarket(markets: any[], names: string[]): any | null {
-  const wanted = new Set(names.map(x => x.toLowerCase()));
-  return markets.find(m => wanted.has(String(m?.name ?? "").toLowerCase())) ?? null;
+function priceAt(outcome: any): { price: number | null; changedAt: string | null } {
+  const players = outcome?.players ?? {};
+  const player = players["0"] ?? Object.values(players)[0] ?? null;
+  if (!player || player.active === false) return { price: null, changedAt: null };
+  const changedAt = typeof player.changedAt === "string" && Number.isFinite(Date.parse(player.changedAt))
+    ? player.changedAt : null;
+  return { price: validPrice(player.price), changedAt };
 }
-function marketRows(market: any): any[] {
-  return Array.isArray(market?.odds) ? market.odds : [];
+function outcomesFor(book: any, marketId: string): Record<string, any> {
+  const market = book?.markets?.[marketId];
+  if (!market || market.marketActive === false) return {};
+  return market.outcomes ?? {};
 }
-function normalizeBook(markets: any[], capturedAt: string): NormalizedBook {
-  const ml = getMarket(markets, ["ML"]);
-  const totals = getMarket(markets, ["Totals", "Goals Over/Under"]);
-  const btts = getMarket(markets, ["Both Teams To Score", "BTTS"]);
-  const mlRow = marketRows(ml)[0] ?? {};
-  const totalsRow = marketRows(totals).find(row => {
-    const line = Number(row?.max ?? row?.line ?? row?.hdp ?? row?.total);
-    return Number.isFinite(line) && Math.abs(line - 2.5) < 0.0001;
-  }) ?? {};
-  const bttsRow = marketRows(btts)[0] ?? {};
-  const stamps = [ml?.updatedAt, totals?.updatedAt, btts?.updatedAt]
-    .filter((x): x is string => typeof x === "string" && Number.isFinite(Date.parse(x)));
-  stamps.sort((a, b) => Date.parse(b) - Date.parse(a));
+function latestStamp(values: Array<string | null>): string | null {
+  return values.filter((x): x is string => !!x && Number.isFinite(Date.parse(x)))
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+}
+function normalizeBook(book: any, capturedAt: string): NormalizedBook {
+  const oneXtwo = outcomesFor(book, "101");
+  const btts = outcomesFor(book, "104");
+  const h = priceAt(oneXtwo["101"]);
+  const d = priceAt(oneXtwo["102"]);
+  const a = priceAt(oneXtwo["103"]);
+  const yes = priceAt(btts["104"]);
+  const no = priceAt(btts["105"]);
+  let over: QuoteSide = null, under: QuoteSide = null;
+  const stamps: Array<string | null> = [h.changedAt, d.changedAt, a.changedAt, yes.changedAt, no.changedAt];
+  for (const market of Object.values(book?.markets ?? {}) as any[]) {
+    if (!market || market.marketActive === false) continue;
+    for (const outcome of Object.values(market.outcomes ?? {}) as any[]) {
+      const quote = priceAt(outcome);
+      const label = String(outcome?.players?.["0"]?.bookmakerOutcomeId ?? Object.values(outcome?.players ?? {})[0]?.bookmakerOutcomeId ?? "").toLowerCase();
+      if (/2[.,]5\s*\/\s*over|over\s*2[.,]5|over.*2[.,]5/.test(label)) over = quote.price;
+      if (/2[.,]5\s*\/\s*under|under\s*2[.,]5|under.*2[.,]5/.test(label)) under = quote.price;
+      stamps.push(quote.changedAt);
+    }
+  }
   return {
-    ml: { home: validPrice(mlRow.home), draw: validPrice(mlRow.draw), away: validPrice(mlRow.away) },
-    totals25: { over: validPrice(totalsRow.over), under: validPrice(totalsRow.under) },
-    btts: { yes: validPrice(bttsRow.yes), no: validPrice(bttsRow.no) },
-    updatedAt: stamps[0] ?? null,
+    ml: { home: h.price, draw: d.price, away: a.price },
+    totals25: { over, under },
+    btts: { yes: yes.price, no: no.price },
+    updatedAt: latestStamp(stamps),
     capturedAt,
   };
 }
 function quoteRows(matchId: number, books: Record<string, NormalizedBook>) {
   const rows: any[] = [];
   for (const book of BOOKS) {
-    const data = books[book.api];
+    const data = books[book.key];
     if (!data) continue;
     const stamp = data.updatedAt ?? data.capturedAt;
     const groups: Array<[string, Record<string, QuoteSide>]> = [
-      ["1X2", data.ml],
-      ["Totales 2.5", data.totals25],
-      ["Ambos marcan", data.btts],
+      ["1X2", data.ml], ["Totales 2.5", data.totals25], ["Ambos marcan", data.btts],
     ];
     for (const [market, selections] of groups) {
       for (const [selection, price] of Object.entries(selections)) {
         if (price != null && Number.isFinite(price) && price > 1) {
           rows.push({
-            partido_id: matchId,
-            casa_apuestas: book.display,
-            mercado: market,
-            seleccion: selection,
-            cuota: price,
-            proveedor: PROVIDER,
-            hora_captura: stamp,
+            partido_id: matchId, casa_apuestas: book.display, mercado: market,
+            seleccion: selection, cuota: price, proveedor: PROVIDER, hora_captura: stamp,
           });
         }
       }
@@ -120,33 +135,37 @@ async function apiGet(path: string, params: Record<string, string>, apiKey: stri
   const url = new URL(API_BASE + path);
   url.searchParams.set("apiKey", apiKey);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-  const result = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(20000) });
+  const result = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(25000) });
   const raw = await result.text();
   let parsed: any = null;
   try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = null; }
   if (!result.ok) {
-    const message = String(parsed?.message ?? parsed?.error ?? "Respuesta no válida del proveedor").slice(0, 220);
-    throw new Error("Proveedor HTTP " + result.status + ": " + message);
+    const code = parsed?.error?.code ?? parsed?.code ?? "";
+    const message = String(parsed?.error?.message ?? parsed?.message ?? parsed?.details ?? "Respuesta no válida del proveedor").slice(0, 220);
+    throw new Error("OddsPapi HTTP " + result.status + (code ? " [" + code + "]" : "") + ": " + message);
   }
-  if (!parsed) throw new Error("El proveedor no devolvió JSON válido.");
+  if (!parsed) throw new Error("OddsPapi no devolvió JSON válido.");
   return parsed;
 }
-function matchEvent(match: InputMatch, events: any[]) {
-  const home = normalizeTeam(match.home);
-  const away = normalizeTeam(match.away);
+function matchFixture(match: InputMatch, fixtures: any[]) {
+  const home = normalizeTeam(match.home), away = normalizeTeam(match.away);
   const kickoff = Date.parse(match.kickoff);
   if (!home || !away || !Number.isFinite(kickoff)) return null;
-  const candidates = events.map(event => {
-    const eventDate = Date.parse(event?.date ?? event?.startTime ?? event?.commenceTime ?? "");
-    const sameTeams = normalizeTeam(event?.home) === home && normalizeTeam(event?.away) === away;
-    const diff = Math.abs(eventDate - kickoff);
-    return { event, eventDate, diff, sameTeams };
-  }).filter(x => x.sameTeams && Number.isFinite(x.eventDate) && x.diff <= 4 * 60 * 60 * 1000)
+  const candidates = fixtures.map(fixture => {
+    const fixtureHome = normalizeTeam(fixture?.participant1Name ?? fixture?.participants?.home?.name ?? fixture?.home);
+    const fixtureAway = normalizeTeam(fixture?.participant2Name ?? fixture?.participants?.away?.name ?? fixture?.away);
+    const start = Date.parse(fixture?.startTime ?? fixture?.date ?? "");
+    const sameTeams = fixtureHome === home && fixtureAway === away;
+    return { fixture, start, diff: Math.abs(start - kickoff), sameTeams };
+  }).filter(x => x.sameTeams && Number.isFinite(x.start) && x.diff <= 4 * 60 * 60 * 1000)
     .sort((a, b) => a.diff - b.diff);
-  return candidates[0]?.event ?? null;
+  return candidates[0]?.fixture ?? null;
 }
 
 const requestWindow = new Map<string, { start: number; count: number }>();
+let cachedProviderData: { at: number; fixtures: any[] } | null = null;
+let cachedTournaments: { at: number; ids: number[] } | null = null;
+
 function isAllowedPublicKey(req: Request): boolean {
   const supplied = req.headers.get("apikey") ?? "";
   const legacy = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -154,7 +173,7 @@ function isAllowedPublicKey(req: Request): boolean {
   try {
     const raw = Deno.env.get("SUPABASE_PUBLISHABLE_KEYS");
     if (raw) publishable = Object.values(JSON.parse(raw)).filter((x): x is string => typeof x === "string");
-  } catch { /* Invalid platform key map: fall back to the legacy anon key. */ }
+  } catch { /* Ignore invalid optional key map. */ }
   return !!supplied && (supplied === legacy || publishable.includes(supplied));
 }
 
@@ -172,14 +191,11 @@ Deno.serve(async (req: Request) => {
   if (!window || now - window.start >= 60000) requestWindow.set(ip, { start: now, count: 1 });
   else requestWindow.set(ip, { start: window.start, count: window.count + 1 });
 
-  const apiKey = Deno.env.get("ODDS_API_KEY");
+  const apiKey = Deno.env.get("ODDSPAPI_API_KEY");
   const capturedAt = new Date().toISOString();
   if (!apiKey) return response({
-    status: "not_configured",
-    source: PROVIDER,
-    capturedAt,
-    message: "Falta configurar ODDS_API_KEY en los secretos de Supabase.",
-    matches: [],
+    status: "not_configured", source: PROVIDER, capturedAt,
+    message: "Falta configurar ODDSPAPI_API_KEY en los secretos de Supabase.", matches: [],
   });
 
   let payload: any;
@@ -191,47 +207,53 @@ Deno.serve(async (req: Request) => {
     typeof m?.away === "string" && m.away.trim() &&
     typeof m?.kickoff === "string" && Number.isFinite(Date.parse(m.kickoff))
   ).map(m => ({ id: Number(m.id), home: m.home.trim(), away: m.away.trim(), kickoff: m.kickoff }));
-
   if (!matches.length) return response({ status: "ok", source: PROVIDER, capturedAt, matches: [] });
 
   try {
-    const eventPayload = await apiGet("/events", { sport: "football" }, apiKey);
-    const events = asArray(eventPayload);
-    const matched = matches.map(match => {
-      const event = matchEvent(match, events);
-      return event ? { match, event } : { match, event: null };
-    });
-    const found = matched.filter(x => x.event && x.event.id != null);
-    const oddsByEvent = new Map<string, any>();
-
-    for (let i = 0; i < found.length; i += 10) {
-      const batch = found.slice(i, i + 10);
-      const ids = batch.map(x => String(x.event.id)).join(",");
-      const oddsPayload = await apiGet("/odds/multi", {
-        eventIds: ids,
-        bookmakers: BOOKS.map(x => x.api).join(","),
-      }, apiKey);
-      for (const item of asArray(oddsPayload)) {
-        const id = String(item?.id ?? item?.eventId ?? "");
-        if (id) oddsByEvent.set(id, item);
-      }
+    if (!cachedTournaments || now - cachedTournaments.at >= CACHE_TTL) {
+      const tournamentPayload = await apiGet("/tournaments", { sportId: "10", language: "en" }, apiKey);
+      const tournaments = asArray(tournamentPayload);
+      const ids = tournaments.filter(t => TARGET_TOURNAMENTS.has(String(t?.tournamentSlug ?? "")))
+        .map(t => Number(t.tournamentId)).filter(id => Number.isSafeInteger(id) && id > 0);
+      if (!ids.length) throw new Error("OddsPapi no devolvió IDs para las competiciones configuradas.");
+      cachedTournaments = { at: now, ids };
     }
 
-    const resultMatches = matched.map(({ match, event }) => {
-      if (!event) return {
+    if (!cachedProviderData || now - cachedProviderData.at >= CACHE_TTL) {
+      const allFixtures: any[] = [];
+      const ids = cachedTournaments.ids;
+      for (let i = 0; i < ids.length; i += 3) {
+        const tournamentIds = ids.slice(i, i + 3).join(",");
+        for (const book of BOOKS) {
+          const oddsPayload = await apiGet("/odds-by-tournaments", {
+            tournamentIds, bookmaker: book.api, language: "en", verbosity: "3",
+          }, apiKey);
+          for (const fixture of asArray(oddsPayload)) {
+            const existing = allFixtures.find(x => String(x.fixtureId) === String(fixture.fixtureId));
+            if (!existing) allFixtures.push(fixture);
+            else existing.bookmakerOdds = { ...(existing.bookmakerOdds ?? {}), ...(fixture.bookmakerOdds ?? {}) };
+          }
+        }
+      }
+      cachedProviderData = { at: now, fixtures: allFixtures };
+    }
+
+    const resultMatches = matches.map(match => {
+      const fixture = matchFixture(match, cachedProviderData!.fixtures);
+      if (!fixture) return {
         id: match.id, home: match.home, away: match.away, kickoff: match.kickoff,
         matched: false, bookmakers: {},
       };
-      const odds = oddsByEvent.get(String(event.id));
-      const rawBooks = odds?.bookmakers ?? {};
+      const rawBooks = fixture.bookmakerOdds ?? {};
       const normalized: Record<string, NormalizedBook> = {};
       for (const book of BOOKS) {
-        const markets = Array.isArray(rawBooks[book.api]) ? rawBooks[book.api] : [];
-        normalized[book.api] = normalizeBook(markets, capturedAt);
+        const raw = rawBooks[book.api];
+        if (raw) normalized[book.key] = normalizeBook(raw, capturedAt);
       }
       return {
         id: match.id, home: match.home, away: match.away, kickoff: match.kickoff,
-        matched: true, providerEventId: String(event.id), bookmakers: normalized,
+        matched: true, providerEventId: String(fixture.fixtureId),
+        bookmakers: normalized,
       };
     });
 
@@ -245,10 +267,8 @@ Deno.serve(async (req: Request) => {
         const save = await fetch(projectUrl.replace(/\/$/, "") + "/rest/v1/cuotas_mercado", {
           method: "POST",
           headers: {
-            apikey: serviceKey,
-            Authorization: "Bearer " + serviceKey,
-            "Content-Type": "application/json",
-            Prefer: "return=minimal",
+            apikey: serviceKey, Authorization: "Bearer " + serviceKey,
+            "Content-Type": "application/json", Prefer: "return=minimal",
           },
           body: JSON.stringify(savedRows),
         });
@@ -258,19 +278,16 @@ Deno.serve(async (req: Request) => {
     }
 
     return response({
-      status: "ok",
-      source: PROVIDER,
-      capturedAt,
-      stored,
-      bookmakerNames: BOOKS.map(x => x.display),
+      status: "ok", source: PROVIDER, capturedAt, stored,
+      bookmakerNames: [...BOOKS.map(x => x.display), DAZN_LABEL],
+      daznStatus: "not_confirmed",
+      cacheAgeHours: Math.floor((now - cachedProviderData!.at) / 3600000),
       matches: resultMatches,
     });
   } catch (error) {
     console.error("sync-bookmaker-odds:", error);
     return response({
-      status: "provider_error",
-      source: PROVIDER,
-      capturedAt,
+      status: "provider_error", source: PROVIDER, capturedAt,
       message: error instanceof Error ? error.message : "Error consultando la fuente de cuotas.",
       matches: [],
     });
