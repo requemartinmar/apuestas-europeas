@@ -16,6 +16,8 @@ type MatchRow = {
   temporada: string;
   fecha_utc: string;
   estado: string;
+  as_match_url: string | null;
+  eventos_estado: string | null;
   equipo_local_id: number;
   equipo_visitante_id: number;
   local: string;
@@ -74,6 +76,23 @@ function htmlToLines(html: string): string[] {
   return decodeEntities(visible).split(/\r?\n/)
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean);
+}
+
+function normalizePlayerName(value: unknown): string {
+  return String(value ?? "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\\s+/g, " ").trim();
+}
+
+function samePlayer(a: unknown, b: unknown): boolean {
+  const left = normalizePlayerName(a);
+  const right = normalizePlayerName(b);
+  if (!left || !right) return false;
+  if (left === right || left.startsWith(right + " ") || left.endsWith(" " + right) ||
+      right.startsWith(left + " ") || right.endsWith(" " + left)) return true;
+  const aTokens = new Set(left.split(" ").filter((token) => token.length > 2));
+  const bTokens = right.split(" ").filter((token) => token.length > 2);
+  const common = bTokens.filter((token) => aTokens.has(token)).length;
+  return common >= Math.min(2, bTokens.length, aTokens.size);
 }
 
 function stablePlayerId(name: string): number {
@@ -185,7 +204,7 @@ Deno.serve(async (request) => {
     const from = new Date(now.getTime() - 45 * 86400000).toISOString();
     const to = new Date(now.getTime() + 5 * 86400000).toISOString();
     const { data, error } = await db.from("partidos")
-      .select("id,jornada,temporada,fecha_utc,estado,as_match_url,equipo_local_id,equipo_visitante_id,local:equipos!partidos_equipo_local_id_fkey(nombre),visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
+      .select("id,jornada,temporada,fecha_utc,estado,as_match_url,eventos_estado,equipo_local_id,equipo_visitante_id,local:equipos!partidos_equipo_local_id_fkey(nombre),visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
       .eq("competid_id", "140").eq("temporada", "2026/27")
       .gte("fecha_utc", from).lte("fecha_utc", to).order("fecha_utc", { ascending: true });
     if (error) throw new Error("No se pudieron leer partidos de LaLiga: " + error.message);
@@ -205,7 +224,16 @@ Deno.serve(async (request) => {
       : { data: [], error: null };
     if (existingError) throw new Error("No se pudo comprobar alineaciones existentes: " + existingError.message);
     const hasAnyLineup = new Set((existing ?? []).map((row: any) => Number(row.partido_id)));
-    const pending = matches.filter((m) => m.jornada && !hasAnyLineup.has(m.id));
+    const { data: eventStatsExisting, error: eventStatsError } = matches.length
+      ? await db.from("player_match_stats").select("fixture_id").eq("provider", "AS-events")
+          .in("fixture_id", matches.map((m) => -m.id).slice(0, 500))
+      : { data: [], error: null };
+    if (eventStatsError) throw new Error("No se pudo comprobar estadísticas de eventos: " + eventStatsError.message);
+    const hasEventStats = new Set((eventStatsExisting ?? []).map((row: any) => Math.abs(Number(row.fixture_id))));
+    const pending = matches.filter((m) => m.jornada && (
+      !hasAnyLineup.has(m.id) ||
+      (m.estado === "FINISHED" && m.eventos_estado === "AVAILABLE" && !hasEventStats.has(m.id))
+    ));
     if (!pending.length && !body?.as_url) {
       await db.from("press_match_sync_runs").update({
         finished_at: new Date().toISOString(), status: "success",
@@ -218,6 +246,12 @@ Deno.serve(async (request) => {
     const explicitMatchId = Number(body?.match_id);
     let pages: Array<{ url: string; round: number | null; match_id?: number }> = [];
     let roundsChecked: number[] = [];
+    for (const match of pending) {
+      if (match.as_match_url && match.estado === "FINISHED") {
+        const baseUrl = match.as_match_url.split("/alineaciones/")[0].replace(/\\/$/, "");
+        pages.push({ url: baseUrl + "/alineaciones/amp/", round: Number(match.jornada), match_id: match.id });
+      }
+    }
 
     if (explicitUrl) {
       const parsed = new URL(explicitUrl);
@@ -254,7 +288,9 @@ Deno.serve(async (request) => {
         pagesFetched++;
         const lines = htmlToLines(html);
         const flat = normalizeTeam(lines.join(" "));
-        const match = pending.find((m) => {
+        const match = page.match_id
+          ? pending.find((m) => m.id === page.match_id)
+          : pending.find((m) => {
           if (explicitMatchId && m.id !== explicitMatchId) return false;
           if (page.round !== null && Number(m.jornada) !== page.round) return false;
           const local = normalizeTeam(m.local);
@@ -303,6 +339,75 @@ Deno.serve(async (request) => {
           onConflict: "partido_id,proveedor,jugador_id",
         });
         if (saveError) throw new Error("No se pudo guardar alineación AS: " + saveError.message);
+
+        // Add missing substitutes from confirmed API-Football substitution events (AS may omit bench players).
+        const { data: matchEvents, error: eventsError } = await db.from("partido_eventos")
+          .select("minuto,minuto_extra,equipo,lado_equipo,jugador_id,jugador,asistente_id,asistente,tipo,detalle,comentario")
+          .eq("partido_id", match.id).order("minuto", { ascending: true });
+        if (eventsError) throw new Error("No se pudieron leer acontecimientos confirmados: " + eventsError.message);
+        const completeEvents = match.eventos_estado === "AVAILABLE" && (matchEvents?.length ?? 0) > 0;
+        const combinedLineups: Record<string, any>[] = [...payloadRows];
+        const extraLineups: Record<string, any>[] = [];
+        if (completeEvents) {
+          for (const event of (matchEvents ?? [])) {
+            if (String(event.tipo).toLowerCase() !== "subst" || !event.asistente || !event.asistente_id) continue;
+            const teamId = event.lado_equipo === "local" ? match.equipo_local_id : match.equipo_visitante_id;
+            const teamName = event.lado_equipo === "local" ? match.local : match.visitante;
+            const alreadyPresent = combinedLineups.some((row) =>
+              Number(row.equipo_id) === Number(teamId) && samePlayer(row.jugador, event.asistente)
+            );
+            if (alreadyPresent) continue;
+            const extra = {
+              partido_id: match.id, proveedor: "AS-events", fixture_id: -match.id,
+              equipo_id: teamId, equipo: teamName, jugador_id: Number(event.asistente_id),
+              jugador: String(event.asistente), dorsal: null, posicion: null, posicion_campo: null,
+              titular: false, formacion: null, entrenador_id: null, entrenador: null,
+              minuto_entrada: Number(event.minuto), minuto_salida: null,
+              fuente_url: page.url,
+              raw_payload: { provider: "API-Football-events", event_type: "subst", source_url: page.url },
+              capturado_at: new Date().toISOString(),
+            };
+            extraLineups.push(extra);
+            combinedLineups.push(extra);
+          }
+          if (extraLineups.length) {
+            const { error: extraError } = await db.from("partido_alineaciones").upsert(extraLineups, {
+              onConflict: "partido_id,proveedor,jugador_id",
+            });
+            if (extraError) throw new Error("No se pudieron completar suplentes desde eventos: " + extraError.message);
+          }
+
+          const statRows = combinedLineups.map((player) => {
+            const relevant = (matchEvents ?? []).filter((event) => {
+              if (normalizeTeam(event.equipo) !== normalizeTeam(player.equipo)) return false;
+              return samePlayer(event.jugador, player.jugador) || samePlayer(event.asistente, player.jugador);
+            });
+            const goals = relevant.filter((event) => String(event.tipo).toLowerCase() === "goal" &&
+              samePlayer(event.jugador, player.jugador) &&
+              !/missed|cancel|disallowed/i.test(String(event.detalle ?? "") + " " + String(event.comentario ?? ""))).length;
+            const assists = relevant.filter((event) => String(event.tipo).toLowerCase() === "goal" &&
+              samePlayer(event.asistente, player.jugador)).length;
+            const yellowCards = relevant.filter((event) => String(event.tipo).toLowerCase() === "card" &&
+              /yellow/i.test(String(event.detalle ?? "")) && samePlayer(event.jugador, player.jugador)).length;
+            const redCards = relevant.filter((event) => String(event.tipo).toLowerCase() === "card" &&
+              /red/i.test(String(event.detalle ?? "")) && samePlayer(event.jugador, player.jugador)).length;
+            return {
+              provider: "AS-events", fixture_id: -match.id, league_id: 140, season: 2026,
+              match_date: match.fecha_utc, home_team: match.local, away_team: match.visitante,
+              team_id: player.equipo_id, team_name: player.equipo,
+              player_id: player.jugador_id, player_name: player.jugador,
+              is_substitute: !player.titular, position: player.posicion,
+              goals, assists, yellow_cards: yellowCards, red_cards: redCards,
+              data_quality: "partial", source_status: "verified_match_events",
+              raw_payload: { provider: "partido_eventos", source_url: page.url, event_count: relevant.length },
+              captured_at: new Date().toISOString(),
+            };
+          });
+          const { error: statsError } = await db.from("player_match_stats").upsert(statRows, {
+            onConflict: "provider,fixture_id,player_id",
+          });
+          if (statsError) throw new Error("No se pudieron guardar goles, asistencias y tarjetas por jugador: " + statsError.message);
+        }
         const { error: updateError } = await db.from("partidos").update({
           alineaciones_estado: "AVAILABLE",
           alineaciones_confirmadas_at: new Date().toISOString(),
