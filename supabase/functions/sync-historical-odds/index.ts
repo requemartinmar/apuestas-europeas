@@ -146,6 +146,8 @@ Deno.serve(async (req: Request) => {
       "oddspapi_fixture_map?select=fixture_id,partido_id,equipo_local,equipo_visitante,kickoff,status_id&partido_id=in.(" + idFilter + ")",
       serviceKey,
     );
+    const matchRows = await dbGet("partidos?select=id,estado&id=in.(" + idFilter + ")", serviceKey);
+    const stateById = new Map((Array.isArray(matchRows) ? matchRows : []).map((row: any) => [Number(row.id), String(row.estado ?? "").toUpperCase()]));
     if (!Array.isArray(mappings) || !mappings.length) {
       return reply({ status: "no_fixture_mapping", message: "No hay fixtureId de OddsPapi guardados para esos partidos. Actualiza primero las cuotas actuales.", matches: [] });
     }
@@ -153,7 +155,9 @@ Deno.serve(async (req: Request) => {
     const results: any[] = [];
     for (const mapping of mappings) {
       const fixtureId = String(mapping.fixture_id);
-      const finished = Number(mapping.status_id) === 2 || Number(mapping.status_id) === 3;
+      const matchState = stateById.get(Number(mapping.partido_id)) ?? "";
+      const finished = Number(mapping.status_id) === 2 || Number(mapping.status_id) === 3 ||
+        ["FINISHED", "NOT_PLAYED", "CANCELLED", "CANCELED"].includes(matchState);
       const cachedRows = await dbGet(
         "oddspapi_historical_cache?select=etag,response_body,fetched_at,status_id&fixture_id=eq." +
         encodeURIComponent(fixtureId) + "&bookmaker_filter=eq." + encodeURIComponent(FILTER) + "&limit=1",
@@ -194,7 +198,7 @@ Deno.serve(async (req: Request) => {
           etag: fetched.etag,
           response_body: body,
           fetched_at: new Date().toISOString(),
-          status_id: Number(mapping.status_id ?? 0),
+          status_id: finished ? 2 : Number(mapping.status_id ?? 0),
         };
         await dbPost("oddspapi_historical_cache?on_conflict=fixture_id,bookmaker_filter", [cacheRow], serviceKey, "resolution=merge-duplicates,return=minimal");
       }
