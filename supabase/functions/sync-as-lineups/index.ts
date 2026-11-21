@@ -248,7 +248,7 @@ Deno.serve(async (request) => {
     let roundsChecked: number[] = [];
     for (const match of pending) {
       if (match.as_match_url && match.estado === "FINISHED") {
-        const baseUrl = match.as_match_url.split("/alineaciones/")[0].replace(/\\/$/, "");
+        const baseUrl = match.as_match_url.split("/alineaciones/")[0].replace(/\/+$/, "");
         pages.push({ url: baseUrl + "/alineaciones/amp/", round: Number(match.jornada), match_id: match.id });
       }
     }
