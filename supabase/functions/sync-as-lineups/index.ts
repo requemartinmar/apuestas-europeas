@@ -79,20 +79,17 @@ function htmlToLines(html: string): string[] {
 }
 
 function normalizePlayerName(value: unknown): string {
-  return String(value ?? "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "")
-    .toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\\s+/g, " ").trim();
+  return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function samePlayer(a: unknown, b: unknown): boolean {
   const left = normalizePlayerName(a);
   const right = normalizePlayerName(b);
   if (!left || !right) return false;
-  if (left === right || left.startsWith(right + " ") || left.endsWith(" " + right) ||
-      right.startsWith(left + " ") || right.endsWith(" " + left)) return true;
-  const aTokens = new Set(left.split(" ").filter((token) => token.length > 2));
-  const bTokens = right.split(" ").filter((token) => token.length > 2);
-  const common = bTokens.filter((token) => aTokens.has(token)).length;
-  return common >= Math.min(2, bTokens.length, aTokens.size);
+  return left === right ||
+    left.startsWith(right + " ") || left.endsWith(" " + right) ||
+    right.startsWith(left + " ") || right.endsWith(" " + left);
 }
 
 function stablePlayerId(name: string): number {
