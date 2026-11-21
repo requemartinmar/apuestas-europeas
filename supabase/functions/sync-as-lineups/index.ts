@@ -35,8 +35,8 @@ function normalizeTeam(value: unknown): string {
     .replace(/\s+/g, " ").trim();
   const aliases: Record<string, string> = {
     "athletic club": "athletic", "athletic bilbao": "athletic",
-    "rcd espanyol de barcelona": "espanyol", "espanyol barcelona": "espanyol",
-    "real racing santander": "racing", "racing santander": "racing",
+    "rcd espanyol de barcelona": "espanyol", "espanyol de barcelona": "espanyol", "espanyol barcelona": "espanyol",
+    "real racing santander": "racing", "real racing de santander": "racing", "racing santander": "racing",
     "real sociedad de futbol": "real sociedad", "sociedad": "real sociedad",
     "rc celta de vigo": "celta", "celta vigo": "celta",
     "deportivo la coruna": "deportivo", "rc deportivo la coruna": "deportivo",
@@ -193,8 +193,16 @@ Deno.serve(async (request) => {
     const matches: MatchRow[] = (data ?? []).map((row: any) => ({
       ...row, local: row.local?.nombre ?? "", visitante: row.visitante?.nombre ?? "",
     }));
-    const { data: existing, error: existingError } = await db.from("partido_alineaciones")
-      .select("partido_id").in("partido_id", matches.map((m) => m.id).slice(0, 500));
+    if (!matches.length && !body?.as_url) {
+      await db.from("press_match_sync_runs").update({
+        finished_at: new Date().toISOString(), status: "success",
+        details: { reason: "no_matches_in_window" },
+      }).eq("id", run.id);
+      return reply({ ok: true, pages_fetched: 0, matches_found: 0, lineups_saved: 0, reason: "no_matches_in_window" });
+    }
+    const { data: existing, error: existingError } = matches.length
+      ? await db.from("partido_alineaciones").select("partido_id").in("partido_id", matches.map((m) => m.id).slice(0, 500))
+      : { data: [], error: null };
     if (existingError) throw new Error("No se pudo comprobar alineaciones existentes: " + existingError.message);
     const hasAnyLineup = new Set((existing ?? []).map((row: any) => Number(row.partido_id)));
     const pending = matches.filter((m) => m.jornada && !hasAnyLineup.has(m.id));
