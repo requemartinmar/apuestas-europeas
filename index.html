@@ -559,6 +559,30 @@
         .map(([market,probability])=>({market,probability}))
         .sort((a,b)=>b.probability-a.probability);
     }
+    function verifiedPickQuote(matchId,pick){
+      const data=bookmakerOddsCache?.data;
+      const match=(data?.matches??[]).find(x=>String(x.id)===String(matchId)&&x.matched);
+      if(!match)return null;
+      const marketMap={
+        'Más de 2,5 goles':'totals25.over',
+        'Ambos equipos marcan: Sí':'btts.yes',
+        'Ambos equipos marcan: No':'btts.no',
+        'Victoria local':'ml.home',
+        'Empate':'ml.draw',
+        'Victoria visitante':'ml.away'
+      };
+      const key=marketMap[pick.market];
+      if(!key)return {unsupported:true};
+      const [section,outcome]=key.split('.');
+      const offers=['Betfair Exchange','Bet365'].map(bookmaker=>{
+        const book=match.bookmakers?.[bookmaker];
+        const raw=book?.[section]?.[outcome];
+        const price=Number(raw);
+        return Number.isFinite(price)&&price>1?{bookmaker,price,capturedAt:book.updatedAt||book.capturedAt||book.captured_at||data.capturedAt}:null;
+      }).filter(Boolean).sort((a,b)=>b.price-a.price);
+      return offers.length?{best:offers[0],offers}:null;
+    }
+    function euro(value){return Number(value).toFixed(2).replace('.',',')+' €';}
     let bookmakerOddsMatches=[];
     let bookmakerOddsCache=null;
     function oddsTime(value){if(!value)return 'Hora no facilitada por la casa';const d=new Date(value);return Number.isNaN(d.getTime())?'Hora no facilitada por la casa':d.toLocaleString('es-ES',{timeZone:'Europe/Madrid'});}
@@ -586,7 +610,7 @@
         source.textContent='Consulta: '+oddsTime(data?.capturedAt)+' · Fuente: OddsPapi.';
         return;
       }
-      const books=[{key:'Betfair Exchange',label:'Betfair Exchange'},{key:'Bet365',label:'Bet365'},{key:'DAZN Bet',label:'DAZN Bet · sin cobertura confirmada'}];
+      const books=[{key:'Betfair Exchange',label:'Betfair Exchange'},{key:'Bet365',label:'Bet365'}];
       const quoteKeys=['ml.home','ml.draw','ml.away','totals25.over','totals25.under','btts.yes','btts.no'];
       const get=(book,key)=>{const [a,b]=key.split('.');return book?.[a]?.[b]??null};
       root.innerHTML=matched.map(match=>{
@@ -595,7 +619,7 @@
         const body=books.map(book=>{
           const data=bookmakerData[book.key]??{};
           const cells=quoteKeys.map(key=>{const value=get(data,key),n=Number(value),isBest=Number.isFinite(n)&&n>1&&n===best[key];return '<td class="'+(isBest?'odds-best':'')+'">'+oddsPrice(value)+'</td>';}).join('');
-          const hasQuote=quoteKeys.some(key=>get(data,key)!=null);const update=book.key==='DAZN Bet'?'Sin cobertura confirmada':data.updatedAt?'Actualizada '+oddsTime(data.updatedAt):hasQuote?'Consulta '+oddsTime(data.capturedAt||data.captured_at):'Sin datos de esta casa';
+          const hasQuote=quoteKeys.some(key=>get(data,key)!=null);const update=data.updatedAt?'Actualizada '+oddsTime(data.updatedAt):hasQuote?'Consulta '+oddsTime(data.capturedAt||data.captured_at):'Sin datos de esta casa';
           return '<tr><td class="odds-book">'+book.label+'</td>'+cells+'<td>'+esc(update)+'</td></tr>';
         }).join('');
         return '<div class="odds-match-title">'+esc(match.home)+' – '+esc(match.away)+' <span class="pr-muted">· '+esc(dateLabel(match.kickoff))+'</span></div><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th><th>1</th><th>X</th><th>2</th><th>+2,5</th><th>−2,5</th><th>Ambos sí</th><th>Ambos no</th><th>Actualización</th></tr></thead><tbody>'+body+'</tbody></table></div>';
@@ -726,7 +750,18 @@
           if(!p)return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">Sin equivalencia histórica o menos de 5 partidos válidos por equipo. No se muestran medias genéricas.</p></article>';
           const rows=predictionMetrics.map(([k,label,type])=>'<tr><td>'+esc(label)+'</td><td class="pr-value">'+predictionNumber(p.metrics[k],type==='pct')+'</td></tr>').join('');
           const picks=m.estado==='SCHEDULED'&&m.fecha_utc&&new Date(m.fecha_utc).getTime()>Date.now()?automaticBetPicks(p):[];
-          const picksHtml=picks.length?'<div class="pr-auto-picks"><h4>✦ ANÁLISIS IA · APUESTAS CON PROBABILIDAD ALTA</h4>'+picks.map((pick,index)=>'<div class="pr-pick"><span><b>'+(index+1)+'. '+esc(pick.market)+'</b><small>Estimación Poisson · sin cuota verificada</small></span><strong>'+Math.round(pick.probability*100)+'%</strong></div>').join('')+'</div>':'<div class="pr-auto-picks"><h4>✦ ANÁLISIS IA · APUESTAS</h4><p class="pr-sample">Sin apuesta recomendada: ningún mercado calculable supera el 65%.</p></div>';
+          const picksHtml=picks.length?'<div class="pr-auto-picks"><h4>✦ ANÁLISIS IA · APUESTAS CON PROBABILIDAD ALTA</h4>'+picks.map((pick,index)=>{
+            const quote=verifiedPickQuote(m.id,pick);
+            let detail='Cuota verificada: no disponible para este mercado.';
+            if(quote?.best){
+              const best=quote.best,implied=(1/best.price)*100,returned=best.price,profit=returned-1;
+              const offers=quote.offers.map(o=>esc(o.bookmaker)+': '+oddsPrice(o.price)).join(' · ');
+              detail='Mejor cuota verificada: '+esc(best.bookmaker)+' '+oddsPrice(best.price)+' · '+offers+'<br>Con 1,00 €: retorno '+euro(returned)+' · beneficio neto '+euro(profit)+' · prob. implícita bruta '+implied.toFixed(1).replace('.',',')+'%.';
+            }else if(quote?.unsupported){
+              detail='Sin cuota equivalente verificable: OddsPapi no ofrece este mercado en los datos actuales.';
+            }
+            return '<div class="pr-pick"><span><b>'+(index+1)+'. '+esc(pick.market)+'</b><small>Probabilidad estimada por Poisson: '+Math.round(pick.probability*100)+'%<br>'+detail+'</small></span><strong>'+Math.round(pick.probability*100)+'%</strong></div>';
+          }).join('')+'<p class="pr-sample">Cálculo por 1,00 €: retorno incluye la cantidad apostada; beneficio neto la descuenta. Las probabilidades del modelo son estimaciones y la probabilidad implícita no está ajustada por margen de la casa. Las cuotas solo se muestran si están verificadas por OddsPapi.</p></div>':'<div class="pr-auto-picks"><h4>✦ ANÁLISIS IA · APUESTAS</h4><p class="pr-sample">Sin apuesta recomendada: ningún mercado calculable supera el 65%.</p></div>';
           return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">'+p.home.n+' partidos recientes de '+esc(home)+' (local: '+p.home.venueN+') · '+p.away.n+' de '+esc(away)+' (visitante: '+p.away.venueN+')</p><p class="pr-sample">Goles estimados: '+predictionNumber(p.lambdaHome)+' – '+predictionNumber(p.lambdaAway)+' · Marcador modal: '+p.scoreline+'</p>'+picksHtml+'<table class="pr-table"><thead><tr><th>Indicador del encuentro</th><th>Estimación</th></tr></thead><tbody>'+rows+'</tbody></table></article>';
         }).join('')+'</div>':'<div class="pr-empty">No hay partidos en esta fecha para analizar. La captura de los próximos siete días sigue activa.</div>';
         const comboCandidates=analysed.filter(x=>x.model&&!x.m.local_record&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>Date.now()).map(x=>{
