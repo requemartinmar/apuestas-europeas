@@ -68,6 +68,7 @@
     .notice{background:#111c2b;border-color:#29394d;border-radius:10px;color:#9ba9bb}
     .notice b{color:#e5edf7}
     .pr-grid{grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}
+    .pr-auto-picks{margin:14px 0;padding:13px;border:1px solid #315343;border-radius:12px;background:rgba(34,110,76,.10)}.pr-auto-picks h4{margin:0 0 9px;color:#78e0ad;font-size:12px;letter-spacing:.06em}.pr-pick{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-top:1px solid rgba(120,224,173,.16)}.pr-pick span{display:flex;flex-direction:column;gap:3px}.pr-pick small{font-size:10px;color:#91a1b8}.pr-pick strong{font-size:19px;color:#78e0ad;white-space:nowrap}
     .pr-card{background:#111c2b;border:1px solid #29394d;border-radius:12px;padding:15px;transition:border-color .18s,transform .18s}
     .pr-card:hover{border-color:#647b51;transform:translateY(-1px)}
     .pr-card h3{font-size:14px;letter-spacing:-.2px}
@@ -532,6 +533,30 @@
         }
       };
     }
+    function automaticBetPicks(model){
+      const ph=poissonDistribution(model.lambdaHome,14),pa=poissonDistribution(model.lambdaAway,14);
+      let over15=0,over25=0,under45=0,btts=0,homeWin=0,draw=0,awayWin=0;
+      for(let h=0;h<ph.length;h++)for(let a=0;a<pa.length;a++){
+        const prob=ph[h]*pa[a],total=h+a;
+        if(total>=2)over15+=prob;
+        if(total>=3)over25+=prob;
+        if(total<=4)under45+=prob;
+        if(h>0&&a>0)btts+=prob;
+        if(h>a)homeWin+=prob;else if(h===a)draw+=prob;else awayWin+=prob;
+      }
+      const candidates=[
+        ['Más de 1,5 goles',over15],['Más de 2,5 goles',over25],
+        ['Menos de 4,5 goles',under45],['Ambos equipos marcan: Sí',btts],
+        ['Ambos equipos marcan: No',1-btts],
+        ['Doble oportunidad 1X',homeWin+draw],
+        ['Doble oportunidad X2',awayWin+draw],
+        ['Doble oportunidad 12',homeWin+awayWin],
+        ['Victoria local',homeWin],['Empate',draw],['Victoria visitante',awayWin]
+      ];
+      return candidates.filter(x=>Number.isFinite(x[1])&&x[1]>.65&&x[1]<.995)
+        .map(([market,probability])=>({market,probability}))
+        .sort((a,b)=>b.probability-a.probability);
+    }
     async function loadPredictions(matches){
       const request=++predictionRequest,root=$('#predicciones'),badge=$('#predictions-status'),topRoot=$('#top3-list');
       const hasVisibleMatches=!!matches?.length;
@@ -593,7 +618,9 @@
           const m=x.m,p=x.model,home=m.equipo_local?.nombre??m.home_name??'Local',away=m.equipo_visitante?.nombre??m.away_name??'Visitante';
           if(!p)return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">Sin equivalencia histórica o menos de 5 partidos válidos por equipo. No se muestran medias genéricas.</p></article>';
           const rows=predictionMetrics.map(([k,label,type])=>'<tr><td>'+esc(label)+'</td><td class="pr-value">'+predictionNumber(p.metrics[k],type==='pct')+'</td></tr>').join('');
-          return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">'+p.home.n+' partidos recientes de '+esc(home)+' (local: '+p.home.venueN+') · '+p.away.n+' de '+esc(away)+' (visitante: '+p.away.venueN+')</p><p class="pr-sample">Goles estimados: '+predictionNumber(p.lambdaHome)+' – '+predictionNumber(p.lambdaAway)+' · Marcador modal: '+p.scoreline+'</p><table class="pr-table"><thead><tr><th>Indicador del encuentro</th><th>Estimación</th></tr></thead><tbody>'+rows+'</tbody></table></article>';
+          const picks=automaticBetPicks(p);
+          const picksHtml=picks.length?'<div class="pr-auto-picks"><h4>✦ ANÁLISIS IA · APUESTAS CON PROBABILIDAD ALTA</h4>'+picks.map((pick,index)=>'<div class="pr-pick"><span><b>'+(index+1)+'. '+esc(pick.market)+'</b><small>Estimación Poisson · sin cuota verificada</small></span><strong>'+Math.round(pick.probability*100)+'%</strong></div>').join('')+'</div>':'<div class="pr-auto-picks"><h4>✦ ANÁLISIS IA · APUESTAS</h4><p class="pr-sample">Sin apuesta recomendada: ningún mercado calculable supera el 65%.</p></div>';
+          return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">'+p.home.n+' partidos recientes de '+esc(home)+' (local: '+p.home.venueN+') · '+p.away.n+' de '+esc(away)+' (visitante: '+p.away.venueN+')</p><p class="pr-sample">Goles estimados: '+predictionNumber(p.lambdaHome)+' – '+predictionNumber(p.lambdaAway)+' · Marcador modal: '+p.scoreline+'</p>'+picksHtml+'<table class="pr-table"><thead><tr><th>Indicador del encuentro</th><th>Estimación</th></tr></thead><tbody>'+rows+'</tbody></table>';
         }).join('')+'</div>':'<div class="pr-empty">No hay partidos en esta fecha para analizar. La captura de los próximos siete días sigue activa.</div>';
         const total=[...historyByLeague.values()].reduce((sum,rows)=>sum+rows.length,0);
         badge.textContent=hasVisibleMatches?total+' registros · forma por equipo': 'Capturando próximos partidos · '+total+' registros históricos';
