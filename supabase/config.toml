@@ -3,3 +3,6 @@ verify_jwt = false
 
 [functions.sync-match-details]
 verify_jwt = false
+
+[functions.sync-as-lineups]
+verify_jwt = false
