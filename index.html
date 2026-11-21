@@ -318,6 +318,22 @@
     }
     @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 
+  
+    /* CANCHA · escudos y forma reciente de equipos */
+    .fixture-team{display:flex;flex-direction:column;align-items:flex-start;gap:7px;min-width:0}
+    .fixture-team.away{align-items:flex-end;text-align:right}
+    .fixture-team-main{display:flex;align-items:center;gap:9px;min-width:0;max-width:100%}
+    .fixture-team-main>span:not(.team-crest-fallback){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .team-crest{width:34px;height:34px;flex:0 0 34px;object-fit:contain;filter:drop-shadow(0 3px 5px #0007)}
+    .team-crest-fallback{width:34px;height:34px;flex:0 0 34px;display:grid;place-items:center;border:1px solid #405365;border-radius:50%;background:#1a2b39;color:#c7f36b;font-weight:850}
+    .team-form{display:flex;gap:4px;align-items:center}
+    .team-form i{width:18px;height:18px;display:grid;place-items:center;border-radius:5px;font-style:normal;font-size:9px;font-weight:900}
+    .team-form .form-w{background:#244c36;color:#baf58c;border:1px solid #4b8050}
+    .team-form .form-d{background:#34404c;color:#d3dce5;border:1px solid #566474}
+    .team-form .form-l{background:#512c35;color:#ffb2b2;border:1px solid #87434c}
+    .team-form-empty{font-size:9px;color:#74869a}
+    @media(max-width:760px){.fixture-team-main{gap:6px}.team-crest,.team-crest-fallback{width:27px;height:27px;flex-basis:27px}.team-form i{width:16px;height:16px;font-size:8px}.fixture-team{gap:5px}}
+
   </style>
 </head>
 <body>
@@ -383,6 +399,7 @@
     const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{global:{fetch:resilientFetch}}),$=s=>document.querySelector(s),STORE_KEY='cancha.personal.records.v1';
     const localDate=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`};
     const state={competition:competitions.all,rows:[],manual:readStored(),date:localDate(new Date()),season:null,demo:false};
+    let teamFormHistory=[];
     const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const dateLabel=v=>v?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Madrid'}).format(new Date(v)):'Hora pendiente';
     const dayOf=v=>v?new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'Europe/Madrid'}).format(new Date(v)):'';
@@ -525,12 +542,43 @@
     function setEmpty(title,description){const b=$('#fixtures');b.className='empty';b.innerHTML=`<div><div class="empty-icon">⚽</div><h3>${esc(title)}</h3><p>${esc(description)}</p><span class="hint">Sin resultados inventados · estadísticas vacías si no hay fuente</span></div>`}
     function dayTitle(day){const today=localDate(new Date());if(day===today)return 'Hoy';const d=new Date(`${day}T12:00:00`);return new Intl.DateTimeFormat('es-ES',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/Madrid'}).format(d)}
     function matchesForView(){const ids=new Set(state.rows.map(m=>String(m.id)));return state.rows.filter(m=>state.competition.id==='all'||m.competid_id===state.competition.id).concat(state.manual.filter(m=>!m.linked_match_id&&!ids.has(String(m.id))&&dayOf(m.fecha_utc)===state.date&&(state.competition.id==='all'||m.competid_id===state.competition.id)))}
+    // Forma reciente por equipo: últimos cinco partidos finalizados anteriores al inicio del encuentro.
+    async function loadTeamFormHistory(matches){
+      const ids=[...new Set((matches??[]).flatMap(m=>[m.equipo_local_id,m.equipo_visitante_id]).filter(v=>v!=null).map(String))];
+      const maxKickoff=(matches??[]).map(m=>new Date(m.fecha_utc).getTime()).filter(Number.isFinite).reduce((a,b)=>Math.max(a,b),0);
+      if(!ids.length||!maxKickoff){teamFormHistory=[];return;}
+      const cutoff=new Date(maxKickoff).toISOString();
+      const fields='id,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado';
+      const [homeResult,awayResult]=await Promise.all([
+        db.from('partidos').select(fields).in('equipo_local_id',ids).eq('estado','FINISHED').lt('fecha_utc',cutoff).order('fecha_utc',{ascending:false}).limit(1500),
+        db.from('partidos').select(fields).in('equipo_visitante_id',ids).eq('estado','FINISHED').lt('fecha_utc',cutoff).order('fecha_utc',{ascending:false}).limit(1500)
+      ]);
+      if(homeResult.error||awayResult.error){console.warn('No se pudo recuperar la forma reciente de los equipos:',homeResult.error||awayResult.error);teamFormHistory=[];return;}
+      teamFormHistory=[...new Map([...(homeResult.data??[]),...(awayResult.data??[])].map(m=>[String(m.id),m])).values()];
+    }
+    function teamRecentForm(teamId,kickoff){
+      if(teamId==null||!kickoff)return [];
+      return teamFormHistory.filter(m=>new Date(m.fecha_utc)<new Date(kickoff)&&(String(m.equipo_local_id)===String(teamId)||String(m.equipo_visitante_id)===String(teamId)))
+        .sort((a,b)=>new Date(b.fecha_utc)-new Date(a.fecha_utc)).slice(0,5).map(m=>{
+          const home=String(m.equipo_local_id)===String(teamId),gf=Number(home?m.goles_local:m.goles_visitante),ga=Number(home?m.goles_visitante:m.goles_local);
+          return gf>ga?'W':gf<ga?'L':'D';
+        });
+    }
+    function teamCrest(team,name){
+      const url=team?.escudo_url;
+      return url?'<img class="team-crest" src="'+esc(url)+'" alt="Escudo de '+esc(name)+'" loading="lazy" referrerpolicy="no-referrer">':'<span class="team-crest-fallback" aria-hidden="true">'+esc(String(name??'?').trim().slice(0,1).toUpperCase())+'</span>';
+    }
+    function teamFormMarkup(teamId,kickoff){
+      const form=teamRecentForm(teamId,kickoff);
+      if(!form.length)return '<span class="team-form-empty">Racha no disponible</span>';
+      return '<span class="team-form" aria-label="Últimos '+form.length+' resultados">'+form.map((v,i)=>'<i class="form-'+v.toLowerCase()+'" title="'+(['Victoria','Empate','Derrota'][['W','D','L'].indexOf(v)])+' · '+(i+1)+' partido reciente">'+v+'</i>').join('')+'</span>';
+    }
     function render(){
       const rows=matchesForView().sort((a,b)=>new Date(a.fecha_utc)-new Date(b.fecha_utc)),box=$('#fixtures');
       $('#matchTitle').textContent=state.competition.id==='all'?'Partidos de todas las competiciones':`Partidos de ${state.competition.name}`;
       $('#day-label').textContent=dayTitle(state.date);$('#match-date').value=state.date;
       if(!rows.length){setEmpty('No hay partidos en '+state.competition.name,'No se han encontrado encuentros para esta fecha. Prueba otra competición o consulta el calendario de mañana.');$('#connection-hint').innerHTML='<button class="action-btn" type="button" id="empty-tomorrow">Ver mañana</button> <button class="action-btn" type="button" id="empty-all-leagues">Ver todas las ligas</button>';setTimeout(()=>{const t=$('#empty-tomorrow'),a=$('#empty-all-leagues');if(t)t.onclick=()=>{const d=new Date(state.date+'T12:00:00');d.setDate(d.getDate()+1);state.date=localDate(d);loadMatches()};if(a)a.onclick=()=>{state.competition=competitions.all;document.querySelectorAll('.league').forEach(x=>x.classList.toggle('active',x.dataset.league==='all'));loadMatches()}},0);}
-      else{box.className='fixture-list';box.innerHTML=rows.map(m=>{const h=m.equipo_local?.nombre??m.home_name??'Local',a=m.equipo_visitante?.nombre??m.away_name??'Visitante',manual=!!m.local_record;const status=manual?'Registro personal':m.estado==='FINISHED'?'Finalizado':m.estado==='LIVE'?'En directo':m.estado==='POSTPONED'?'Aplazado':'Programado';return `<article class="fixture" data-match="${esc(m.id)}" role="button" tabindex="0" aria-label="Ver análisis de ${esc(h)} contra ${esc(a)}"><div class="fixture-league">${esc(m.competition_name??competitionsById(m.competid_id))}${manual?' · PERSONAL':''}</div><div class="fixture-team"><span>${esc(h)}</span></div><div class="fixture-score">${esc(score(m))}<small>${esc(status)} · ${esc(dateLabel(m.fecha_utc))}</small></div><div class="fixture-team away"><span>${esc(a)}</span></div><div class="fixture-meta">Abrir análisis del partido · estadísticas y acontecimientos</div></article>`}).join('');}
+      else{box.className='fixture-list';box.innerHTML=rows.map(m=>{const h=m.equipo_local?.nombre??m.home_name??'Local',a=m.equipo_visitante?.nombre??m.away_name??'Visitante',manual=!!m.local_record;const status=manual?'Registro personal':m.estado==='FINISHED'?'Finalizado':m.estado==='LIVE'?'En directo':m.estado==='POSTPONED'?'Aplazado':'Programado';return `<article class="fixture" data-match="${esc(m.id)}" role="button" tabindex="0" aria-label="Ver análisis de ${esc(h)} contra ${esc(a)}"><div class="fixture-league">${esc(m.competition_name??competitionsById(m.competid_id))}${manual?' · PERSONAL':''}</div><div class="fixture-team"><div class="fixture-team-main">${teamCrest(m.equipo_local,h)}<span>${esc(h)}</span></div>${teamFormMarkup(m.equipo_local_id,m.fecha_utc)}</div><div class="fixture-score">${esc(score(m))}<small>${esc(status)} · ${esc(dateLabel(m.fecha_utc))}</small></div><div class="fixture-team away"><div class="fixture-team-main"><span>${esc(a)}</span>${teamCrest(m.equipo_visitante,a)}</div>${teamFormMarkup(m.equipo_visitante_id,m.fecha_utc)}</div><div class="fixture-meta">Racha: últimos partidos · W victoria · D empate · L derrota · Abrir análisis</div></article>`}).join('');}
       const finished=rows.filter(m=>m.estado==='FINISHED'||m.local_record).length;$('#metric-round').textContent=rows.length?String(rows[0].jornada_nombre??rows[0].jornada??'Partidos del día'):'—';$('#metric-finished').textContent=String(finished);$('#metric-teams').textContent=String(new Set(rows.flatMap(m=>[m.equipo_local_id??m.home_name,m.equipo_visitante_id??m.away_name]).filter(Boolean)).size);const last=state.rows.map(m=>m.sincronizado_at).filter(Boolean).sort().at(-1);$('#metric-updated').textContent=last?new Intl.DateTimeFormat('es-ES',{dateStyle:'short',timeStyle:'short'}).format(new Date(last)):'—';
       const stats=rows.map(m=>({m,s:state.manual.find(r=>String(r.linked_match_id)===String(m.id))?.personal_stats??latestStats(m)??m.personal_stats??null}));$('#stats-status').textContent=stats.some(x=>x.s)?`${stats.filter(x=>x.s).length}/${stats.length} con datos`:'Sin estadísticas verificadas';
       $('#stats-body').innerHTML=stats.length?stats.filter(x=>x.s).map(({m,s})=>{const home=m.equipo_local?.nombre??m.home_name??'Local',away=m.equipo_visitante?.nombre??m.away_name??'Visitante';return `<tr><td>${esc(m.competition_name??competitionsById(m.competid_id))}<br>${esc(home)} – ${esc(away)}</td><td>${esc(score(m))}</td><td>${esc(pair(s?.posesion_local,s?.posesion_visitante,'%'))}</td><td>${esc(pair(s?.tiros_totales_local,s?.tiros_totales_visitante))}</td><td>${esc(pair(s?.tiros_puerta_local,s?.tiros_puerta_visitante))}</td><td>${esc(pair(s?.corners_local,s?.corners_visitante))}</td><td>${esc(cardSummary(s))}</td><td>${esc(pair(s?.faltas_local,s?.faltas_visitante))}</td><td>${esc(s?.fuente??'Sin estadísticas')}</td></tr>`}).join(''):'<tr><td colspan="9" style="text-align:center;color:#77889f;padding:22px">Sin partidos para mostrar.</td></tr>';
@@ -1109,12 +1157,13 @@
         badge.textContent='No disponible';
       }
     }
-    async function loadMatches(){const badge=$('#supabase-status'),msg=$('#connection-message');$('#sync-status').textContent='Cargando';setEmpty('Cargando partidos','Leyendo los encuentros de la fecha seleccionada.');msg.textContent='';msg.classList.remove('error');try{const {data:comps,error:ce}=await db.from('competiciones').select('id,nombre,temporada_actual,activo').eq('activo',true);if(ce)throw ce;const ids=(comps??[]).map(c=>String(c.id));const season=(comps??[]).map(c=>c.temporada_actual).filter(Boolean).sort().at(-1);state.season=season??null;$('#season-label').textContent=season??'Temporada actual';const {from,to}=dayBounds(state.date);let query=db.from('partidos').select('id,competid_id,temporada,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,sincronizado_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre,escudo_url),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre,escudo_url),estadisticas:estadisticas_partido(id,posesion_local,posesion_visitante,tiros_puerta_local,tiros_puerta_visitante,tiros_totales_local,tiros_totales_visitante,tiros_fuera_local,tiros_fuera_visitante,tiros_bloqueados_local,tiros_bloqueados_visitante,corners_local,corners_visitante,faltas_local,faltas_visitante,fueras_juego_local,fueras_juego_visitante,paradas_portero_local,paradas_portero_visitante,pases_totales_local,pases_totales_visitante,pases_precisos_local,pases_precisos_visitante,tarjetas_amarillas_local,tarjetas_amarillas_visitante,tarjetas_rojas_local,tarjetas_rojas_visitante,fuente,capturado_at)').eq('temporada',season).gte('fecha_utc',from).lte('fecha_utc',to).order('fecha_utc',{ascending:true}).limit(1000);if(state.competition.id!=='all')query=query.eq('competid_id',state.competition.id);else if(ids.length)query=query.in('competid_id',ids);const {data,error}=await query;if(error)throw error;state.rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));try{localStorage.setItem(MATCH_CACHE_KEY,JSON.stringify({date:state.date,competition:state.competition.id,savedAt:new Date().toISOString(),rows:state.rows}))}catch(cacheError){console.warn('No se pudo guardar la caché de partidos:',cacheError)}loadPredictions(state.rows);loadCanchaComparison();badge.className='source-pill connected';badge.title='Conexión con Supabase correcta';badge.innerHTML='<i class="dot"></i> Datos actualizados '+new Intl.DateTimeFormat('es-ES',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Madrid'}).format(new Date());msg.textContent=`${state.rows.length} partidos de proveedor · ${state.manual.filter(m=>dayOf(m.fecha_utc)===state.date).length} registros personales`;render()}catch(error){
+    async function loadMatches(){const badge=$('#supabase-status'),msg=$('#connection-message');$('#sync-status').textContent='Cargando';setEmpty('Cargando partidos','Leyendo los encuentros de la fecha seleccionada.');msg.textContent='';msg.classList.remove('error');try{const {data:comps,error:ce}=await db.from('competiciones').select('id,nombre,temporada_actual,activo').eq('activo',true);if(ce)throw ce;const ids=(comps??[]).map(c=>String(c.id));const season=(comps??[]).map(c=>c.temporada_actual).filter(Boolean).sort().at(-1);state.season=season??null;$('#season-label').textContent=season??'Temporada actual';const {from,to}=dayBounds(state.date);let query=db.from('partidos').select('id,competid_id,temporada,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,sincronizado_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre,escudo_url),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre,escudo_url),estadisticas:estadisticas_partido(id,posesion_local,posesion_visitante,tiros_puerta_local,tiros_puerta_visitante,tiros_totales_local,tiros_totales_visitante,tiros_fuera_local,tiros_fuera_visitante,tiros_bloqueados_local,tiros_bloqueados_visitante,corners_local,corners_visitante,faltas_local,faltas_visitante,fueras_juego_local,fueras_juego_visitante,paradas_portero_local,paradas_portero_visitante,pases_totales_local,pases_totales_visitante,pases_precisos_local,pases_precisos_visitante,tarjetas_amarillas_local,tarjetas_amarillas_visitante,tarjetas_rojas_local,tarjetas_rojas_visitante,fuente,capturado_at)').eq('temporada',season).gte('fecha_utc',from).lte('fecha_utc',to).order('fecha_utc',{ascending:true}).limit(1000);if(state.competition.id!=='all')query=query.eq('competid_id',state.competition.id);else if(ids.length)query=query.in('competid_id',ids);const {data,error}=await query;if(error)throw error;state.rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));await loadTeamFormHistory(state.rows);try{localStorage.setItem(MATCH_CACHE_KEY,JSON.stringify({date:state.date,competition:state.competition.id,savedAt:new Date().toISOString(),rows:state.rows}))}catch(cacheError){console.warn('No se pudo guardar la caché de partidos:',cacheError)}loadPredictions(state.rows);loadCanchaComparison();badge.className='source-pill connected';badge.title='Conexión con Supabase correcta';badge.innerHTML='<i class="dot"></i> Datos actualizados '+new Intl.DateTimeFormat('es-ES',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Madrid'}).format(new Date());msg.textContent=`${state.rows.length} partidos de proveedor · ${state.manual.filter(m=>dayOf(m.fecha_utc)===state.date).length} registros personales`;render()}catch(error){
         console.error(error);
         let cached=null;
         try{cached=JSON.parse(localStorage.getItem(MATCH_CACHE_KEY)||'null')}catch(cacheError){console.warn('Caché de partidos no válida:',cacheError)}
         if(cached&&cached.date===state.date&&cached.competition===state.competition.id&&Array.isArray(cached.rows)){
           state.rows=cached.rows;
+          await loadTeamFormHistory(state.rows);
           loadPredictions(state.rows);
           badge.className='source-pill error';
           badge.innerHTML='<i class="dot"></i> Última carga guardada';
