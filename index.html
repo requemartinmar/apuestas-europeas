@@ -778,7 +778,12 @@
           status:'ok',source:'OddsPapi + The Odds API',
           capturedAt:primaryData?.capturedAt??extraData?.capturedAt??new Date().toISOString(),
           matches:mergedMatches,
-          diagnostics:primaryData?.diagnostics??extraData?.diagnostics??{},
+          diagnostics:{
+            ...(primaryData?.diagnostics??{}),
+            verifiedQuotes:Number(primaryData?.diagnostics?.verifiedQuotes??0)+Number(extraData?.diagnostics?.verifiedQuotes??0),
+            matchedMatches:mergedMatches.filter(x=>x.matched).length,
+            providerFixtures:Number(primaryData?.diagnostics?.providerFixtures??0)+Number(extraData?.diagnostics?.matchedMatches??0),
+          },
           additionalSource:{
             name:'The Odds API',
             status:extraData?.status??(extraError?'error':'unavailable'),
