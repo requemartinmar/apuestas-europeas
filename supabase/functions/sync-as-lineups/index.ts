@@ -100,19 +100,19 @@ function extractRoundLinks(html: string, round: number): string[] {
   return [...links];
 }
 
-function parsePlayerLine(line: string): { number: number; name: string; entryMinute: number | null } | null {
+function parsePlayerLine(line: string): { number: number; name: string; minute: number | null } | null {
   const cleaned = line.replace(/[•·]/g, " ").trim();
-  const match = cleaned.match(/^(\d{1,2})\s+(.+?)\s*(?:\((\d{1,3})\s*['’]?\))?$/);
+  const match = cleaned.match(/^(\d{1,2})\s+(.+?)\s*(?:\((\d{1,3})\s*['’]?\)|(\d{1,3})['’])?$/);
   if (!match) return null;
   const number = Number(match[1]);
   let name = match[2].trim().replace(/\s+\d{1,3}['’]$/, "").replace(/\s+x\d+$/i, "").trim();
   if (!name || /^(ent|portero|defensa|centrocampista|delantero|banquillo)$/i.test(name)) return null;
-  return { number, name, entryMinute: match[3] ? Number(match[3]) : null };
+  return { number, name, minute: match[3] ? Number(match[3]) : match[4] ? Number(match[4]) : null };
 }
 
 function parseTeamBlocks(lines: string[]): Array<{
   starters: Array<{ number: number; name: string; position: string }>;
-  substitutes: Array<{ number: number; name: string; entryMinute: number | null }>;
+  substitutes: Array<{ number: number; name: string; minute: number | null }>;
   coach: string | null;
   formation: string | null;
 }> {
@@ -124,7 +124,7 @@ function parseTeamBlocks(lines: string[]): Array<{
     if (benchAt < 0) continue;
     const starterLines = block.slice(1, benchAt);
     const benchLines = block.slice(benchAt + 1);
-    let position = "Sin posición";
+    let position = "Portero";
     const starters: Array<{ number: number; name: string; position: string }> = [];
     for (const line of starterLines) {
       if (/^(portero|defensa|centrocampista|delantero)$/i.test(line)) {
@@ -259,14 +259,6 @@ Deno.serve(async (request) => {
         }
         matchesFound++;
         const teams = parseTeamBlocks(lines);
-        if (body?.debug === true) {
-          await db.from("press_match_sync_runs").update({
-            finished_at: new Date().toISOString(), status: "debug",
-            pages_fetched: pagesFetched, matches_found: 1,
-            details: { url: page.url, lines: lines.slice(0, 240), parsed_teams: teams },
-          }).eq("id", run.id);
-          return reply({ ok: true, match_id: match.id, url: page.url, lines: lines.slice(0, 240), parsed_teams: teams });
-        }
         if (teams.length !== 2 || teams.some((team) => team.starters.length !== 11)) {
           outcomes.push({ match_id: match.id, url: page.url, status: "lineup_markup_unrecognized", parsed_teams: teams.length, starter_counts: teams.map((t) => t.starters.length) });
           await sleep(REQUEST_GAP_MS);
@@ -278,14 +270,14 @@ Deno.serve(async (request) => {
           const team = teams[side];
           const teamId = side === 0 ? match.equipo_local_id : match.equipo_visitante_id;
           const teamName = side === 0 ? match.local : match.visitante;
-          const add = (player: { number: number; name: string; position?: string; entryMinute?: number | null }, starter: boolean) => {
+          const add = (player: { number: number; name: string; position?: string; minute?: number | null }, starter: boolean) => {
             payloadRows.push({
               partido_id: match.id, proveedor: "AS", fixture_id: -match.id,
               equipo_id: teamId, equipo: teamName, jugador_id: stablePlayerId(player.name),
               jugador: player.name, dorsal: player.number, posicion: player.position ?? "Sin posición",
               posicion_campo: null, titular: starter, formacion: team.formation,
-              entrenador_id: null, entrenador: team.coach, minuto_entrada: starter ? null : player.entryMinute,
-              fuente_url: page.url, raw_payload: { provider: "AS", source_url: page.url, player_name_as_published: player.name },
+              entrenador_id: null, entrenador: team.coach, minuto_entrada: starter ? null : player.minute, minuto_salida: starter ? player.minute : null,
+              fuente_url: page.url, raw_payload: { provider: "AS", source_url: page.url, player_name_as_published: player.name, fixture_id_kind: "synthetic_supabase_match_id" },
               capturado_at: new Date().toISOString(),
             });
           };
