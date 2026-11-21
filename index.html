@@ -724,53 +724,69 @@
       root.innerHTML='<p class="muted-note">Consultando la fuente de cuotas reales y verificando cada partido…</p>';
       try{
         const requestMatches=valid.map(m=>({id:Number(m.id),home:m.equipo_local?.nombre??m.home_name??'',away:m.equipo_visitante?.nombre??m.away_name??'',kickoff:m.fecha_utc,competitionId:m.competid_id??m.competencia_id??m.competition_id??''}));
-        const {data,error}=await db.functions.invoke('sync-bookmaker-odds',{body:{force:!!force,matches:requestMatches}});
-        if(error)throw error;
-        // Segunda fuente independiente: solo completa huecos, nunca pisa una cuota ya recibida.
+        // Consultar ambas fuentes de forma independiente: ninguna puede bloquear a la otra.
+        let primaryData=null,primaryError=null,extraData=null,extraError=null;
+        try{
+          const primary=await db.functions.invoke('sync-bookmaker-odds',{body:{force:!!force,matches:requestMatches}});
+          if(primary.error)throw primary.error;
+          primaryData=primary.data;
+        }catch(error){primaryError=error;console.warn('OddsPapi no disponible:',error);}
         try{
           const extra=await db.functions.invoke('sync-the-odds-api',{body:{force:!!force,matches:requestMatches}});
-          if(!extra.error&&extra.data?.status==='ok'){
-            const byId=new Map((extra.data.matches??[]).map(x=>[String(x.id),x]));
-            for(const match of (data.matches??[])){
-              const other=byId.get(String(match.id));
-              if(!other?.matched)continue;
-              match.bookmakers=match.bookmakers??{};
-              for(const house of ['Betfair','Bet365']){
-                const incoming=other.bookmakers?.[house];
-                if(!incoming)continue;
-                const current=match.bookmakers[house]??{};
-                for(const section of ['ml','totals25','btts']){
-                  current[section]=current[section]??{};
-                  for(const [key,value] of Object.entries(incoming[section]??{})){
-                    if((current[section][key]==null||!Number.isFinite(Number(current[section][key])))&&value!=null)current[section][key]=value;
-                  }
+          if(extra.error)throw extra.error;
+          extraData=extra.data;
+        }catch(error){extraError=error;console.warn('The Odds API no disponible:',error);}
+        const primaryById=new Map((primaryData?.matches??[]).map(x=>[String(x.id),x]));
+        const extraById=new Map((extraData?.matches??[]).map(x=>[String(x.id),x]));
+        const mergedMatches=requestMatches.map(request=>{
+          const base=primaryById.get(String(request.id))??{...request,matched:false,bookmakers:{}};
+          const other=extraById.get(String(request.id));
+          base.bookmakers=base.bookmakers??{};
+          if(other?.matched){
+            base.matched=!!base.matched||!!other.matched;
+            base.providerEventId=base.providerEventId??other.providerEventId;
+            for(const house of ['Betfair','Bet365']){
+              const incoming=other.bookmakers?.[house];
+              if(!incoming)continue;
+              const current=base.bookmakers[house]??{};
+              for(const section of ['ml','totals25','btts']){
+                current[section]=current[section]??{};
+                for(const [key,value] of Object.entries(incoming[section]??{})){
+                  if((current[section][key]==null||!Number.isFinite(Number(current[section][key])))&&value!=null)current[section][key]=value;
                 }
-                current.markets=current.markets??[];
-                for(const market of incoming.markets??[]){
-                  const same=current.markets.find(x=>String(x.marketId)===String(market.marketId)&&String(x.marketName)===String(market.marketName));
-                  if(!same)current.markets.push(market);
-                  else{
-                    same.outcomes=same.outcomes??[];
-                    for(const outcome of market.outcomes??[]){
-                      if(!same.outcomes.some(x=>String(x.outcomeName)===String(outcome.outcomeName)&&String(x.playerName??'')===String(outcome.playerName??''))){
-                        same.outcomes.push(outcome);
-                      }
-                    }
-                  }
-                }
-                if(!current.updatedAt&&incoming.updatedAt)current.updatedAt=incoming.updatedAt;
-                if(!current.capturedAt&&incoming.capturedAt)current.capturedAt=incoming.capturedAt;
-                match.bookmakers[house]=current;
               }
+              current.markets=current.markets??[];
+              for(const market of incoming.markets??[]){
+                const same=current.markets.find(x=>String(x.marketId)===String(market.marketId)&&String(x.marketName)===String(market.marketName)&&String(x.handicap??'')===String(market.handicap??''));
+                if(!same)current.markets.push(market);
+                else{
+                  same.outcomes=same.outcomes??[];
+                  for(const outcome of market.outcomes??[]){
+                    if(!same.outcomes.some(x=>String(x.outcomeName)===String(outcome.outcomeName)&&String(x.playerName??'')===String(outcome.playerName??'')))same.outcomes.push(outcome);
+                  }
+                }
+              }
+              current.updatedAt=current.updatedAt??incoming.updatedAt;
+              current.capturedAt=current.capturedAt??incoming.capturedAt;
+              base.bookmakers[house]=current;
             }
-            data.additionalSource={name:'The Odds API',diagnostics:extra.data.diagnostics??{},capturedAt:extra.data.capturedAt};
-          }else{
-            data.additionalSource={name:'The Odds API',status:extra.data?.status??'unavailable',message:extra.data?.message??extra.error?.message??'Sin datos adicionales.'};
           }
-        }catch(extraError){
-          data.additionalSource={name:'The Odds API',status:'error',message:String(extraError?.message??extraError)};
-          console.warn('The Odds API no disponible; se conserva OddsPapi:',extraError);
-        }
+          return base;
+        });
+        const data={
+          status:'ok',source:'OddsPapi + The Odds API',
+          capturedAt:primaryData?.capturedAt??extraData?.capturedAt??new Date().toISOString(),
+          matches:mergedMatches,
+          diagnostics:primaryData?.diagnostics??{},
+          additionalSource:{
+            name:'The Odds API',
+            status:extraData?.status??(extraError?'error':'unavailable'),
+            message:extraData?.message??extraError?.message??'',
+            diagnostics:extraData?.diagnostics??{},
+            capturedAt:extraData?.capturedAt,
+          },
+          sourceErrors:[primaryError?.message,extraError?.message].filter(Boolean)
+        };
         bookmakerOddsCache={at:Date.now(),data};
         renderBookmakerOdds(data);
         const predictionSignature=valid.map(m=>String(m.id)).sort().join(',');
@@ -891,11 +907,11 @@
               const offers=quote.offers.map(o=>esc(o.bookmaker)+': '+oddsPrice(o.price)).join(' · ');
               detail='Mejor cuota verificada: '+esc(best.bookmaker)+' '+oddsPrice(best.price)+' · '+offers+'<br>Con 1,00 €: retorno '+euro(returned)+' · beneficio neto '+euro(profit)+' · prob. implícita bruta '+implied.toFixed(1).replace('.',',')+'%.';
             }else if(quote?.unsupported){
-              detail='Sin cuota equivalente verificable: OddsPapi no ofrece este mercado en los datos actuales.';
+              detail='Sin cuota equivalente verificable en los mercados devueltos por las fuentes actuales.';
             }
             return '<div class="pr-pick"><span><b>'+(index+1)+'. '+esc(pick.market)+'</b><small>Probabilidad estimada por Poisson: '+Math.round(pick.probability*100)+'%<br>'+detail+'</small></span><strong>'+Math.round(pick.probability*100)+'%</strong></div>';
-          }).join('')+'<p class="pr-sample">Cálculo por 1,00 €: retorno incluye la cantidad apostada; beneficio neto la descuenta. Las probabilidades del modelo son estimaciones y la probabilidad implícita no está ajustada por margen de la casa. Las cuotas solo se muestran si están verificadas por OddsPapi.</p></div>':'<div class="pr-auto-picks"><h4>✦ ANÁLISIS IA · APUESTAS</h4><p class="pr-sample">Sin apuesta recomendada: ningún mercado calculable supera el 65%.</p></div>';
-          const comboTicketHtml=picks.length?'<div class="pr-auto-combos"><h3>✦ CANCHA · COMBINADA OPTIMIZADA DEL PARTIDO</h3>'+picks.map((pick,index)=>'<p>'+(index+1)+'. '+esc(pick.market)+' · '+Math.round(pick.probability*100)+'% IA</p>').join('')+'<div class="pr-combo"><h4>APUESTA DE REFERENCIA: 1,00 €</h4><p>Casa: Bet365 / Betfair · comprobar el Bet Builder</p><strong>Cuota conjunta real: no disponible en la fuente de cuotas</strong><p class="pr-sample">No se multiplican cuotas individuales ni se calcula retorno hasta disponer del precio final del cupón de la casa. Las cuotas individuales no equivalen a la cuota de esta combinada.</p></div></div>':'';
+          }).join('')+'<p class="pr-sample">Cálculo por 1,00 €: retorno incluye la cantidad apostada; beneficio neto la descuenta. Las probabilidades del modelo son estimaciones y la probabilidad implícita no está ajustada por margen de la casa. Las cuotas solo se muestran si están verificadas por OddsPapi o The Odds API.</p></div>':'<div class="pr-auto-picks"><h4>✦ ANÁLISIS IA · APUESTAS</h4><p class="pr-sample">Sin apuesta recomendada: ningún mercado calculable supera el 65%.</p></div>';
+          const comboTicketHtml='';
           return '<article class="pr-card"><header><span>'+esc(m.competition_name??competitionsById(m.competid_id))+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></header><h3>'+esc(home)+' <small>vs</small> '+esc(away)+'</h3><p class="pr-sample">'+p.home.n+' partidos recientes de '+esc(home)+' (local: '+p.home.venueN+') · '+p.away.n+' de '+esc(away)+' (visitante: '+p.away.venueN+')</p><p class="pr-sample">Goles estimados: '+predictionNumber(p.lambdaHome)+' – '+predictionNumber(p.lambdaAway)+' · Marcador modal: '+p.scoreline+'</p>'+picksHtml+comboTicketHtml+renderInlineMatchOdds(m.id)+'<table class="pr-table"><thead><tr><th>Indicador del encuentro</th><th>Estimación</th></tr></thead><tbody>'+rows+'</tbody></table></article>';
         }).join('')+'</div>':'<div class="pr-empty">No hay partidos en esta fecha para analizar. La captura de los próximos siete días sigue activa.</div>';
         const comboCandidates=analysed.filter(x=>x.model&&!x.m.local_record&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>Date.now()).map(x=>{
