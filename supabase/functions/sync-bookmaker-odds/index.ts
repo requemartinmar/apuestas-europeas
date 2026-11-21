@@ -8,7 +8,7 @@ const BOOKS = [
   { api: "DAZN Bet ES", display: "DAZN Bet" },
 ];
 const CORS = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": "https://apuestas-europeas.vercel.app",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json; charset=utf-8",
@@ -146,9 +146,31 @@ function matchEvent(match: InputMatch, events: any[]) {
   return candidates[0]?.event ?? null;
 }
 
+const requestWindow = new Map<string, { start: number; count: number }>();
+function isAllowedPublicKey(req: Request): boolean {
+  const supplied = req.headers.get("apikey") ?? "";
+  const legacy = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  let publishable: string[] = [];
+  try {
+    const raw = Deno.env.get("SUPABASE_PUBLISHABLE_KEYS");
+    if (raw) publishable = Object.values(JSON.parse(raw)).filter((x): x is string => typeof x === "string");
+  } catch { /* Invalid platform key map: fall back to the legacy anon key. */ }
+  return !!supplied && (supplied === legacy || publishable.includes(supplied));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return response({ status: "method_not_allowed" }, 405);
+  if (!isAllowedPublicKey(req)) return response({ status: "unauthorized" }, 401);
+
+  const ip = req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const now = Date.now();
+  const window = requestWindow.get(ip);
+  if (window && now - window.start < 60000 && window.count >= 20) {
+    return response({ status: "rate_limited", message: "Límite temporal de consultas alcanzado." }, 429);
+  }
+  if (!window || now - window.start >= 60000) requestWindow.set(ip, { start: now, count: 1 });
+  else requestWindow.set(ip, { start: window.start, count: window.count + 1 });
 
   const apiKey = Deno.env.get("ODDS_API_KEY");
   const capturedAt = new Date().toISOString();
