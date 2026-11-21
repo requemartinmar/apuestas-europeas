@@ -259,6 +259,14 @@ Deno.serve(async (request) => {
         }
         matchesFound++;
         const teams = parseTeamBlocks(lines);
+        if (body?.debug === true) {
+          await db.from("press_match_sync_runs").update({
+            finished_at: new Date().toISOString(), status: "debug",
+            pages_fetched: pagesFetched, matches_found: 1,
+            details: { url: page.url, lines: lines.slice(0, 240), parsed_teams: teams },
+          }).eq("id", run.id);
+          return reply({ ok: true, match_id: match.id, url: page.url, lines: lines.slice(0, 240), parsed_teams: teams });
+        }
         if (teams.length !== 2 || teams.some((team) => team.starters.length !== 11)) {
           outcomes.push({ match_id: match.id, url: page.url, status: "lineup_markup_unrecognized", parsed_teams: teams.length, starter_counts: teams.map((t) => t.starters.length) });
           await sleep(REQUEST_GAP_MS);
