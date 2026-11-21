@@ -217,6 +217,7 @@ Deno.serve(async (request) => {
     const explicitUrl = typeof body?.as_url === "string" ? body.as_url : null;
     const explicitMatchId = Number(body?.match_id);
     let pages: Array<{ url: string; round: number | null }> = [];
+    let roundsChecked: number[] = [];
 
     if (explicitUrl) {
       const parsed = new URL(explicitUrl);
@@ -230,10 +231,10 @@ Deno.serve(async (request) => {
           new Date(m.fecha_utc).getTime() <= now.getTime() + 5 * 86400000)
         .reduce((max, m) => Math.max(max, Number(m.jornada)), 0);
       const availableRounds = [...new Set(pending.map((m) => Number(m.jornada)))].sort((a, b) => a - b);
-      const rounds = currentRound
+      roundsChecked = currentRound
         ? [currentRound - 2, currentRound - 1, currentRound].filter((round) => availableRounds.includes(round))
         : availableRounds.slice(-3);
-      for (const round of rounds) {
+      for (const round of roundsChecked) {
         const roundUrl = AS_ROOT + "/resultados/futbol/" + AS_LEAGUE + "/" + AS_SEASON + "/jornada/regular_a_" + round + "/";
         try {
           const html = await fetchText(roundUrl);
@@ -255,6 +256,7 @@ Deno.serve(async (request) => {
         const flat = normalizeTeam(lines.join(" "));
         const match = pending.find((m) => {
           if (explicitMatchId && m.id !== explicitMatchId) return false;
+          if (page.round !== null && Number(m.jornada) !== page.round) return false;
           const local = normalizeTeam(m.local);
           const away = normalizeTeam(m.visitante);
           return flat.includes(local) && flat.includes(away);
@@ -317,7 +319,7 @@ Deno.serve(async (request) => {
     const { error: finishError } = await db.from("press_match_sync_runs").update({
       finished_at: new Date().toISOString(), status,
       pages_fetched: pagesFetched, matches_found: matchesFound, lineups_saved: lineupsSaved,
-      details: { competition_id: 140, provider: "AS", rounds_checked: rounds, outcomes },
+      details: { competition_id: 140, provider: "AS", rounds_checked: roundsChecked, outcomes },
     }).eq("id", run.id);
     if (finishError) throw new Error("No se pudo cerrar el registro: " + finishError.message);
     return reply({ ok: true, pages_fetched: pagesFetched, matches_found: matchesFound, lineups_saved: lineupsSaved, outcomes });
