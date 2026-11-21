@@ -242,7 +242,7 @@
       const modal=$('#match-detail-modal');modal.hidden=false;$('#match-detail-title').textContent=home+' – '+away;
       $('#match-detail-meta').textContent=(m.competition_name??competitionsById(m.competid_id))+' · '+dateLabel(m.fecha_utc)+' · '+(m.estado==='FINISHED'?'Finalizado':'Partido');
       $('#match-detail-body').innerHTML='<p class="match-muted">Cargando estadísticas y acontecimientos…</p>';
-      let s=null,events=[],lineups=[],playerStats=[];
+      let s=null,events=[],lineups=[],playerStats=[],confirmedLineups=false;
       if(m.local_record){s=m.personal_stats??null;}
       else{
         const pid=Number(m.id);
@@ -252,7 +252,7 @@
           db.from('partido_alineaciones').select('*').eq('partido_id',pid).order('titular',{ascending:false}).order('dorsal',{ascending:true})
         ]);
         s=statsResult.data??latestStats(m)??null;events=eventsResult.data??[];lineups=lineupResult.data??[];
-        const confirmedLineups=lineups.length>0;
+        confirmedLineups=lineups.length>0;
         if(!lineups.length){
           const {data:recentLineups}=await db.from('partido_alineaciones').select('*').in('equipo',[home,away]).order('capturado_at',{ascending:false}).limit(100);
           lineups=recentLineups??[];
