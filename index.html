@@ -70,7 +70,7 @@
     .pr-grid{grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}
     .pr-super-combo{margin-top:18px;padding:16px;border:1px solid #98732f;border-radius:14px;background:linear-gradient(145deg,rgba(120,85,25,.20),rgba(18,31,49,.96));box-shadow:0 8px 24px rgba(0,0,0,.16)}.pr-super-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.pr-super-head h3{margin:0;color:#f3c969;font-size:16px}.pr-super-head span{font-size:10px;font-weight:800;color:#f3c969;border:1px solid #98732f;border-radius:20px;padding:5px 8px}.pr-super-pick{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(243,201,105,.18)}.pr-super-pick span{display:flex;flex-direction:column;gap:4px}.pr-super-pick small{font-size:11px;color:#aebbd0}.pr-super-pick strong{font-size:18px;color:#f3c969;white-space:nowrap}.pr-super-total{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:13px;padding:12px;border-radius:9px;background:rgba(0,0,0,.20)}.pr-super-total small{color:#c7d0df;font-size:11px}.pr-super-total strong{color:#f3c969;font-size:20px}
     .pr-auto-combos{margin-top:18px;padding:16px;border:1px solid #3a4c68;border-radius:14px;background:#121f31}.pr-auto-combos>h3{margin:0 0 6px;color:#a9c8ff;font-size:15px}.pr-combo{margin-top:12px;padding:12px;border:1px solid #2b3e59;border-radius:10px;background:#0d1828}.pr-combo h4{margin:0 0 9px;color:#a9c8ff;font-size:12px}.pr-combo p{padding:7px 0;margin:0;border-bottom:1px solid #26364b;font-size:12px;line-height:1.6}.pr-combo>strong{display:block;margin-top:10px;color:#78e0ad;font-size:14px}
-    .pr-inline-odds{margin:14px 0;padding:13px;border:1px solid #293b52;border-radius:12px;background:rgba(10,20,34,.45)}.pr-inline-odds h4{margin:0 0 8px;color:#dce8f7;font-size:12px;letter-spacing:.04em}.pr-inline-odds .odds-table{min-width:920px}.pr-inline-odds .odds-table td small{display:block;margin-top:4px;color:#91a4bc;font-size:10px;line-height:1.45}.pr-inline-odds .odds-table td b{font-size:12px}.pr-inline-odds .pr-odds-missing{color:#718096;text-align:center}
+    .pr-all-markets{margin-top:12px;border-top:1px solid #293b52;padding-top:10px}.pr-all-markets summary{cursor:pointer;color:#b8f36b;font-size:11px;font-weight:700;padding:6px 0}.pr-all-markets .odds-table-wrap{max-height:440px;overflow:auto}.pr-all-markets table{min-width:700px}.pr-inline-odds{margin:14px 0;padding:13px;border:1px solid #293b52;border-radius:12px;background:rgba(10,20,34,.45)}.pr-inline-odds h4{margin:0 0 8px;color:#dce8f7;font-size:12px;letter-spacing:.04em}.pr-inline-odds .odds-table{min-width:920px}.pr-inline-odds .odds-table td small{display:block;margin-top:4px;color:#91a4bc;font-size:10px;line-height:1.45}.pr-inline-odds .odds-table td b{font-size:12px}.pr-inline-odds .pr-odds-missing{color:#718096;text-align:center}
     .pr-auto-picks{margin:14px 0;padding:13px;border:1px solid #315343;border-radius:12px;background:rgba(34,110,76,.10)}.pr-auto-picks h4{margin:0 0 9px;color:#78e0ad;font-size:12px;letter-spacing:.06em}.pr-pick{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-top:1px solid rgba(120,224,173,.16)}.pr-pick span{display:flex;flex-direction:column;gap:3px}.pr-pick small{font-size:10px;color:#91a1b8}.pr-pick strong{font-size:19px;color:#78e0ad;white-space:nowrap}
     .pr-card{background:#111c2b;border:1px solid #29394d;border-radius:12px;padding:15px;transition:border-color .18s,transform .18s}
     .pr-card:hover{border-color:#647b51;transform:translateY(-1px)}
@@ -559,12 +559,12 @@
       const eligible=candidates.filter(x=>Number.isFinite(x[1])&&x[1]>.65&&x[1]<.995)
         .map(([market,probability])=>({market,probability}))
         .sort((a,b)=>b.probability-a.probability);
-      // En una combinada del mismo partido solo conservamos la doble oportunidad
-      // con mayor probabilidad; 1X, X2 y 12 son alternativas, no selecciones acumulables.
       const bestDoubleChance=eligible.find(p=>p.market.startsWith('Doble oportunidad '));
       const seen=new Set();
       return eligible.filter(p=>{
         if(p.market.startsWith('Doble oportunidad ')&&p!==bestDoubleChance)return false;
+        // La doble oportunidad ya cubre dos resultados: no añadir 1X2 solapado.
+        if(bestDoubleChance&&['Victoria local','Empate','Victoria visitante'].includes(p.market))return false;
         const key=p.market.normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
         if(seen.has(key))return false;
         seen.add(key);
@@ -575,25 +575,63 @@
       const data=bookmakerOddsCache?.data;
       const match=(data?.matches??[]).find(x=>String(x.id)===String(matchId)&&x.matched);
       if(!match)return null;
-      const marketMap={
-        'Más de 2,5 goles':'totals25.over',
-        'Ambos equipos marcan: Sí':'btts.yes',
-        'Ambos equipos marcan: No':'btts.no',
-        'Victoria local':'ml.home',
-        'Empate':'ml.draw',
-        'Victoria visitante':'ml.away'
+      const exactMap={
+        'Más de 2,5 goles':['totals25','over'],
+        'Menos de 2,5 goles':['totals25','under'],
+        'Ambos equipos marcan: Sí':['btts','yes'],
+        'Ambos equipos marcan: No':['btts','no'],
+        'Victoria local':['ml','home'],
+        'Empate':['ml','draw'],
+        'Victoria visitante':['ml','away']
       };
-      const key=marketMap[pick.market];
-      if(!key)return {unsupported:true};
-      const [section,outcome]=key.split('.');
+      const findGeneric=(book)=>{
+        const rows=book?.markets??[];
+        let desired=null;
+        if(pick.market==='Más de 1,5 goles')desired={line:1.5,side:'over'};
+        if(pick.market==='Más de 2,5 goles')desired={line:2.5,side:'over'};
+        if(pick.market==='Menos de 2,5 goles')desired={line:2.5,side:'under'};
+        if(pick.market==='Menos de 4,5 goles')desired={line:4.5,side:'under'};
+        if(pick.market.startsWith('Doble oportunidad '))desired={doubleChance:pick.market.slice(-2)};
+        if(!desired)return null;
+        for(const market of rows){
+          const name=String(market.marketName??'').toLowerCase();
+          if(desired.doubleChance){
+            if(!/double chance|doble oportunidad/.test(name))continue;
+            const outcome=market.outcomes?.find(o=>String(o.outcomeName??'').toUpperCase().replace(/\\s/g,'')===desired.doubleChance);
+            if(outcome?.price>1)return outcome.price;
+          }else{
+            const line=Number(market.handicap);
+            if(!Number.isFinite(line)||Math.abs(line-desired.line)>.001)continue;
+            if(!/over under|total|goles|goals/.test(name))continue;
+            const outcome=market.outcomes?.find(o=>desired.side==='over'?/^(over|más|mas)$/i.test(o.outcomeName):/^(under|menos)$/i.test(o.outcomeName));
+            if(outcome?.price>1)return outcome.price;
+          }
+        }
+        return null;
+      };
       const offers=['Betfair Exchange','Bet365'].map(bookmaker=>{
         const book=match.bookmakers?.[bookmaker];
-        const raw=book?.[section]?.[outcome];
+        const key=exactMap[pick.market];
+        const raw=key?book?.[key[0]]?.[key[1]]:findGeneric(book);
         const price=Number(raw);
         return Number.isFinite(price)&&price>1?{bookmaker,price,capturedAt:book.updatedAt||book.capturedAt||book.captured_at||data.capturedAt}:null;
       }).filter(Boolean).sort((a,b)=>b.price-a.price);
-      return offers.length?{best:offers[0],offers}:null;
+      return offers.length?{best:offers[0],offers}: {unsupported:true};
     }
+    function renderFullMarketRows(match){
+      const books=[{key:'Betfair Exchange',label:'Betfair Exchange'},{key:'Bet365',label:'Bet365'}];
+      const rows=books.flatMap(book=>{
+        const data=match.bookmakers?.[book.key];
+        return (data?.markets??[]).flatMap(market=>(market.outcomes??[]).filter(o=>o.active&&Number(o.price)>1).map(o=>{
+          const line=market.handicap!=null?' · línea '+String(market.handicap).replace('.',','):'';
+          const player=o.playerName?' · '+o.playerName:'';
+          return '<tr><td>'+book.label+'</td><td>'+esc(market.marketName)+esc(line)+(market.playerProp?' · jugador':'')+'</td><td>'+esc(o.outcomeName)+esc(player)+'</td><td><b>'+oddsPrice(o.price)+'</b></td><td>'+esc(oddsTime(o.changedAt||data.updatedAt||data.capturedAt))+'</td></tr>';
+        }));
+      });
+      if(!rows.length)return '<p class="pr-sample">La fuente no ha devuelto mercados activos adicionales para este encuentro.</p>';
+      return '<details class="pr-all-markets"><summary>Ver todos los mercados y cuotas disponibles ('+rows.length+')</summary><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th><th>Mercado</th><th>Selección / jugador</th><th>Cuota</th><th>Actualización</th></tr></thead><tbody>'+rows.join('')+'</tbody></table></div></details>';
+    }
+    function euro(value){return Number(value).toFixed(2).replace('.',',')+' €';}
     function euro(value){return Number(value).toFixed(2).replace('.',',')+' €';}
     function renderInlineMatchOdds(matchId){
       const data=bookmakerOddsCache?.data;
@@ -609,7 +647,7 @@
         const [section,outcome]=key.split('.');
         const price=Number(book?.[section]?.[outcome]);
         if(!Number.isFinite(price)||price<=1)return '<td class="pr-odds-missing">—</td>';
-        return '<td><b>'+oddsPrice(price)+'</b><small>Retorno '+euro(price)+'<br>Beneficio +'+euro(price-1)+'</small></td>';
+        return '<td><b>'+oddsPrice(price)+'</b><small>Retorno '+euro(price)+'<br>Beneficio '+euro(price-1)+'</small></td>';
       };
       const rows=books.map(item=>{
         const book=match.bookmakers?.[item.key]??{};
@@ -617,7 +655,7 @@
       }).join('');
       const headers=markets.map(([label])=>'<th>'+esc(label)+'</th>').join('');
       const stamp=match.capturedAt||data.capturedAt;
-      return '<div class="pr-inline-odds"><h4>◉ CUOTAS REALES · BETFAIR EXCHANGE / BET365</h4><p class="pr-sample">Precios verificados por OddsPapi · '+esc(oddsTime(stamp))+' · Apuesta de referencia: 1,00 € por selección. El retorno incluye lo apostado; el beneficio es el neto.</p><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th>'+headers+'</tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+      return '<div class="pr-inline-odds"><h4>◉ CUOTAS VERIFICADAS · BETFAIR EXCHANGE / BET365</h4><p class="pr-sample">Consulta OddsPapi · '+esc(oddsTime(stamp))+' · La tabla resumida muestra mercados principales.</p><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th>'+headers+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+renderFullMarketRows(match)+'</div>';
     }
     let bookmakerOddsMatches=[];
     let bookmakerOddsCache=null;
