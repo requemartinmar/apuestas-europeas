@@ -7,11 +7,17 @@ const BOOKS = [
   { api: "bet365", key: "Bet365", display: "Bet365" },
 ];
 const DAZN_LABEL = "DAZN Bet";
-const TARGET_TOURNAMENTS = new Set([
-  "laliga", "premier-league", "bundesliga", "serie-a", "ligue-1",
-  "uefa-champions-league", "uefa-europa-league",
+const TARGET_TOURNAMENTS = new Map([
+  ["laliga", "spain"],
+  ["premier-league", "england"],
+  ["bundesliga", "germany"],
+  ["serie-a", "italy"],
+  ["ligue-1", "france"],
+  ["uefa-champions-league", "international-clubs"],
+  ["uefa-europa-league", "international-clubs"],
 ]);
 const CACHE_TTL = 24 * 60 * 60 * 1000;
+const EMPTY_CACHE_TTL = 15 * 60 * 1000;
 const CORS = {
   "Access-Control-Allow-Origin": "https://apuestas-europeas.vercel.app",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -131,21 +137,38 @@ function quoteRows(matchId: number, books: Record<string, NormalizedBook>) {
   }
   return rows;
 }
+const endpointLastCall = new Map<string, number>();
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function apiGet(path: string, params: Record<string, string>, apiKey: string) {
   const url = new URL(API_BASE + path);
   url.searchParams.set("apiKey", apiKey);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-  const result = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(25000) });
-  const raw = await result.text();
-  let parsed: any = null;
-  try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = null; }
-  if (!result.ok) {
+  let lastError = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const previous = endpointLastCall.get(path) ?? 0;
+    const wait = Math.max(0, 1100 - (Date.now() - previous));
+    if (wait) await sleep(wait);
+    endpointLastCall.set(path, Date.now());
+    const result = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(25000) });
+    const raw = await result.text();
+    let parsed: any = null;
+    try { parsed = raw ? JSON.parse(raw) : null; } catch { parsed = null; }
+    if (result.ok) {
+      if (!parsed) throw new Error("OddsPapi no devolvió JSON válido.");
+      return parsed;
+    }
     const code = parsed?.error?.code ?? parsed?.code ?? "";
     const message = String(parsed?.error?.message ?? parsed?.message ?? parsed?.details ?? "Respuesta no válida del proveedor").slice(0, 220);
-    throw new Error("OddsPapi HTTP " + result.status + (code ? " [" + code + "]" : "") + ": " + message);
+    lastError = "OddsPapi HTTP " + result.status + (code ? " [" + code + "]" : "") + ": " + message;
+    if (result.status === 429 && code === "RATE_LIMITED" && attempt < 2) {
+      const retryMs = Number(parsed?.error?.retryMs ?? parsed?.retryMs ?? 1200);
+      await sleep(Math.max(1100, Number.isFinite(retryMs) ? retryMs + 200 : 1400));
+      continue;
+    }
+    throw new Error(lastError);
   }
-  if (!parsed) throw new Error("OddsPapi no devolvió JSON válido.");
-  return parsed;
+  throw new Error(lastError || "OddsPapi: no se pudo completar la consulta.");
 }
 function matchFixture(match: InputMatch, fixtures: any[]) {
   const home = normalizeTeam(match.home), away = normalizeTeam(match.away);
@@ -201,6 +224,7 @@ Deno.serve(async (req: Request) => {
   let payload: any;
   try { payload = await req.json(); } catch { return response({ status: "invalid_json" }, 400); }
   const input: InputMatch[] = Array.isArray(payload?.matches) ? payload.matches.slice(0, 30) : [];
+  const forceRefresh = payload?.force === true;
   const matches = input.filter(m =>
     Number.isSafeInteger(Number(m?.id)) &&
     typeof m?.home === "string" && m.home.trim() &&
@@ -213,21 +237,57 @@ Deno.serve(async (req: Request) => {
     if (!cachedTournaments || now - cachedTournaments.at >= CACHE_TTL) {
       const tournamentPayload = await apiGet("/tournaments", { sportId: "10", language: "en" }, apiKey);
       const tournaments = asArray(tournamentPayload);
-      const ids = tournaments.filter(t => TARGET_TOURNAMENTS.has(String(t?.tournamentSlug ?? "")))
-        .map(t => Number(t.tournamentId)).filter(id => Number.isSafeInteger(id) && id > 0);
-      if (!ids.length) throw new Error("OddsPapi no devolvió IDs para las competiciones configuradas.");
+      const selected = tournaments
+        .filter(t => {
+          const slug = String(t?.tournamentSlug ?? "");
+          const category = String(t?.categorySlug ?? "");
+          const expectedCategory = TARGET_TOURNAMENTS.get(slug);
+          const available = Number(t?.futureFixtures ?? 0) + Number(t?.upcomingFixtures ?? 0);
+          return !!expectedCategory && category === expectedCategory && available > 0;
+        })
+        .sort((a, b) =>
+          (Number(b?.futureFixtures ?? 0) + Number(b?.upcomingFixtures ?? 0)) -
+          (Number(a?.futureFixtures ?? 0) + Number(a?.upcomingFixtures ?? 0))
+        );
+      const unique = new Map<string, number>();
+      for (const t of selected) {
+        const slug = String(t.tournamentSlug);
+        if (!unique.has(slug)) unique.set(slug, Number(t.tournamentId));
+      }
+      const ids = [...unique.values()].filter(id => Number.isSafeInteger(id) && id > 0);
+      if (!ids.length) throw new Error("OddsPapi no ofrece torneos con partidos futuros para las competiciones configuradas.");
       cachedTournaments = { at: now, ids };
     }
 
-    if (!cachedProviderData || now - cachedProviderData.at >= CACHE_TTL) {
+    if (forceRefresh) cachedProviderData = null;
+    if (!cachedProviderData || now - cachedProviderData.at >= (cachedProviderData.fixtures.length ? CACHE_TTL : EMPTY_CACHE_TTL)) {
       const allFixtures: any[] = [];
+      const bookErrors: Record<string, string> = {};
       const ids = cachedTournaments.ids;
-      for (let i = 0; i < ids.length; i += 3) {
-        const tournamentIds = ids.slice(i, i + 3).join(",");
-        for (const book of BOOKS) {
-          const oddsPayload = await apiGet("/odds-by-tournaments", {
-            tournamentIds, bookmaker: book.api, language: "en", verbosity: "3",
-          }, apiKey);
+      for (const book of BOOKS) {
+        const batchSize = book.api === "betfair-ex" ? 1 : 3;
+        for (let i = 0; i < ids.length; i += batchSize) {
+          const tournamentIds = ids.slice(i, i + batchSize).join(",");
+          let oddsPayload: any;
+          try {
+            oddsPayload = await apiGet("/odds-by-tournaments", {
+              tournamentIds, bookmaker: book.api, language: "en", verbosity: "3",
+            }, apiKey);
+          } catch (error) {
+            const message = String(error instanceof Error ? error.message : error);
+            // OddsPapi devuelve 404 FIXTURE_NOT_FOUND cuando ese lote no tiene
+            // partidos con cuotas para esa casa. Es ausencia de datos, no fallo global.
+            if (message.includes("404 [FIXTURE_NOT_FOUND]")) {
+              console.info("OddsPapi sin fixtures para lote", { bookmaker: book.api, tournamentIds });
+              continue;
+            }
+            if (message.includes("429 [RATE_LIMITED]")) {
+              bookErrors[book.display] = message;
+              console.warn("OddsPapi limitado temporalmente; se omiten los siguientes lotes de esta casa.", { bookmaker: book.api });
+              break;
+            }
+            throw error;
+          }
           for (const fixture of asArray(oddsPayload)) {
             const existing = allFixtures.find(x => String(x.fixtureId) === String(fixture.fixtureId));
             if (!existing) allFixtures.push(fixture);
@@ -236,6 +296,7 @@ Deno.serve(async (req: Request) => {
         }
       }
       cachedProviderData = { at: now, fixtures: allFixtures };
+      (globalThis as any).__oddsBookErrors = bookErrors;
     }
 
     const resultMatches = matches.map(match => {
@@ -257,6 +318,31 @@ Deno.serve(async (req: Request) => {
       };
     });
 
+    // Persistir el vínculo CANCHA -> fixtureId OddsPapi para consultar históricos.
+    const projectUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const fixtureMappings = resultMatches.filter(x => x.matched && x.providerEventId).map(x => ({
+      fixture_id: String(x.providerEventId),
+      partido_id: Number(x.id),
+      equipo_local: String(x.home),
+      equipo_visitante: String(x.away),
+      kickoff: String(x.kickoff),
+      status_id: Number((cachedProviderData!.fixtures.find(f => String(f.fixtureId) === String(x.providerEventId)) as any)?.statusId ?? 0),
+      proveedor: PROVIDER,
+      updated_at: new Date().toISOString(),
+    }));
+    if (fixtureMappings.length && projectUrl && serviceKey) {
+      const mappingSave = await fetch(projectUrl.replace(/\/$/, "") + "/rest/v1/oddspapi_fixture_map?on_conflict=fixture_id", {
+        method: "POST",
+        headers: {
+          apikey: serviceKey, Authorization: "Bearer " + serviceKey,
+          "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal",
+        },
+        body: JSON.stringify(fixtureMappings),
+      });
+      if (!mappingSave.ok) console.error("No se pudieron guardar los fixtureId históricos:", mappingSave.status, (await mappingSave.text()).slice(0, 300));
+    }
+
     const savedRows = resultMatches.filter(x => x.matched)
       .flatMap(x => quoteRows(x.id, x.bookmakers as Record<string, NormalizedBook>));
     let stored = false;
@@ -277,10 +363,19 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    const quoteCount = savedRows.length;
+    const matchedCount = resultMatches.filter(x => x.matched).length;
     return response({
       status: "ok", source: PROVIDER, capturedAt, stored,
       bookmakerNames: [...BOOKS.map(x => x.display), DAZN_LABEL],
       daznStatus: "not_confirmed",
+      diagnostics: {
+        tournamentsQueried: cachedTournaments.ids.length,
+        providerFixtures: cachedProviderData!.fixtures.length,
+        matchedMatches: matchedCount,
+        verifiedQuotes: quoteCount,
+        bookmakerErrors: (globalThis as any).__oddsBookErrors ?? {},
+      },
       cacheAgeHours: Math.floor((now - cachedProviderData!.at) / 3600000),
       matches: resultMatches,
     });
