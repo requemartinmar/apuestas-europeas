@@ -114,10 +114,19 @@ async function fetchHistorical(fixtureId: string, apiKey: string, etag?: string)
   return { notModified: false, body: parsed, etag: res.headers.get("etag") };
 }
 
+const requestWindow = new Map<string, { start: number; count: number }>();
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return reply({ status: "method_not_allowed" }, 405);
   if (!allowedKey(req)) return reply({ status: "unauthorized" }, 401);
+  const ip = req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const now = Date.now();
+  const window = requestWindow.get(ip);
+  if (window && now - window.start < 10 * 60 * 1000 && window.count >= 2) {
+    return reply({ status: "rate_limited", message: "Límite de histórico: espera 10 minutos antes de repetir consultas." }, 429);
+  }
+  if (!window || now - window.start >= 10 * 60 * 1000) requestWindow.set(ip, { start: now, count: 1 });
+  else requestWindow.set(ip, { start: window.start, count: window.count + 1 });
 
   const apiKey = Deno.env.get("ODDSPAPI_API_KEY");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -152,8 +161,13 @@ Deno.serve(async (req: Request) => {
       );
       const cached = Array.isArray(cachedRows) ? cachedRows[0] : null;
       let fetched: any;
+      const cacheFresh = !!cached?.response_body && Number.isFinite(Date.parse(String(cached.fetched_at))) &&
+        Date.now() - Date.parse(String(cached.fetched_at)) < 15 * 60 * 1000;
+      const cacheHit = !finished && cacheFresh;
       try {
-        fetched = await fetchHistorical(fixtureId, apiKey, finished && cached?.etag ? String(cached.etag) : undefined);
+        fetched = cacheHit
+          ? { notModified: true, body: null, etag: cached?.etag ?? null }
+          : await fetchHistorical(fixtureId, apiKey, finished && cached?.etag ? String(cached.etag) : undefined);
       } catch (error) {
         results.push({
           partidoId: Number(mapping.partido_id), fixtureId,
@@ -212,7 +226,7 @@ Deno.serve(async (req: Request) => {
       results.push({
         partidoId: Number(mapping.partido_id), fixtureId,
         home: mapping.equipo_local, away: mapping.equipo_visitante,
-        status: notModified ? "not_modified" : "ok",
+        status: cacheHit ? "cached" : notModified ? "not_modified" : "ok",
         etag: fetched.etag ?? cached?.etag ?? null,
         fetchedAt: notModified ? cached?.fetched_at : new Date().toISOString(),
         bookmakers: summaries,
