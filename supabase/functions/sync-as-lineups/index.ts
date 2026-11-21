@@ -7,7 +7,7 @@ const SYNC_SECRET = env("SYNC_FUNCTION_SECRET");
 const AS_ROOT = "https://as.com";
 const AS_LEAGUE = "primera";
 const AS_SEASON = "2026_2027";
-const MAX_MATCH_PAGES = 14;
+const MAX_MATCH_PAGES = 24;
 const REQUEST_GAP_MS = 1100;
 
 type MatchRow = {
@@ -225,7 +225,14 @@ Deno.serve(async (request) => {
       }
       pages = [{ url: parsed.pathname.includes("/alineaciones/") ? explicitUrl : explicitUrl.replace(/\/$/, "") + "/alineaciones/amp/", round: null }];
     } else {
-      const rounds = [...new Set(pending.map((m) => Number(m.jornada)))].sort((a, b) => a - b).slice(-3);
+      const currentRound = pending
+        .filter((m) => new Date(m.fecha_utc).getTime() >= now.getTime() - 14 * 86400000 &&
+          new Date(m.fecha_utc).getTime() <= now.getTime() + 5 * 86400000)
+        .reduce((max, m) => Math.max(max, Number(m.jornada)), 0);
+      const availableRounds = [...new Set(pending.map((m) => Number(m.jornada)))].sort((a, b) => a - b);
+      const rounds = currentRound
+        ? [currentRound - 2, currentRound - 1, currentRound].filter((round) => availableRounds.includes(round))
+        : availableRounds.slice(-3);
       for (const round of rounds) {
         const roundUrl = AS_ROOT + "/resultados/futbol/" + AS_LEAGUE + "/" + AS_SEASON + "/jornada/regular_a_" + round + "/";
         try {
@@ -260,7 +267,7 @@ Deno.serve(async (request) => {
         matchesFound++;
         const teams = parseTeamBlocks(lines);
         if (teams.length !== 2 || teams.some((team) => team.starters.length !== 11)) {
-          outcomes.push({ match_id: match.id, url: page.url, status: "lineup_markup_unrecognized", parsed_teams: teams.length, starter_counts: teams.map((t) => t.starters.length) });
+          outcomes.push({ match_id: match.id, url: page.url, status: "lineups_not_published_or_markup_changed", parsed_teams: teams.length, starter_counts: teams.map((t) => t.starters.length) });
           await sleep(REQUEST_GAP_MS);
           continue;
         }
@@ -310,7 +317,7 @@ Deno.serve(async (request) => {
     const { error: finishError } = await db.from("press_match_sync_runs").update({
       finished_at: new Date().toISOString(), status,
       pages_fetched: pagesFetched, matches_found: matchesFound, lineups_saved: lineupsSaved,
-      details: { competition_id: 140, provider: "AS", outcomes },
+      details: { competition_id: 140, provider: "AS", rounds_checked: rounds, outcomes },
     }).eq("id", run.id);
     if (finishError) throw new Error("No se pudo cerrar el registro: " + finishError.message);
     return reply({ ok: true, pages_fetched: pagesFetched, matches_found: matchesFound, lineups_saved: lineupsSaved, outcomes });
