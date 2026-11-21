@@ -272,7 +272,7 @@ Deno.serve(async (request) => {
           const teamName = side === 0 ? match.local : match.visitante;
           const add = (player: { number: number; name: string; position?: string; entryMinute?: number | null }, starter: boolean) => {
             payloadRows.push({
-              partido_id: match.id, proveedor: "AS", fixture_id: null,
+              partido_id: match.id, proveedor: "AS", fixture_id: -match.id,
               equipo_id: teamId, equipo: teamName, jugador_id: stablePlayerId(player.name),
               jugador: player.name, dorsal: player.number, posicion: player.position ?? "Sin posición",
               posicion_campo: null, titular: starter, formacion: team.formation,
