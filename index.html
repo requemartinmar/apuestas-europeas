@@ -556,9 +556,20 @@
         ['Doble oportunidad 12',homeWin+awayWin],
         ['Victoria local',homeWin],['Empate',draw],['Victoria visitante',awayWin]
       ];
-      return candidates.filter(x=>Number.isFinite(x[1])&&x[1]>.65&&x[1]<.995)
+      const eligible=candidates.filter(x=>Number.isFinite(x[1])&&x[1]>.65&&x[1]<.995)
         .map(([market,probability])=>({market,probability}))
         .sort((a,b)=>b.probability-a.probability);
+      // En una combinada del mismo partido solo conservamos la doble oportunidad
+      // con mayor probabilidad; 1X, X2 y 12 son alternativas, no selecciones acumulables.
+      const bestDoubleChance=eligible.find(p=>p.market.startsWith('Doble oportunidad '));
+      const seen=new Set();
+      return eligible.filter(p=>{
+        if(p.market.startsWith('Doble oportunidad ')&&p!==bestDoubleChance)return false;
+        const key=p.market.normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+        if(seen.has(key))return false;
+        seen.add(key);
+        return true;
+      });
     }
     function verifiedPickQuote(matchId,pick){
       const data=bookmakerOddsCache?.data;
