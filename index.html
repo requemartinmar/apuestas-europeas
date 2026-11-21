@@ -925,13 +925,24 @@
           return picks.length?{match:x.m,home:x.m.equipo_local?.nombre??x.m.home_name??'Local',away:x.m.equipo_visitante?.nombre??x.m.away_name??'Visitante',pick:picks[0]}:null;
         }).filter(Boolean).sort((a,b)=>b.pick.probability-a.pick.probability).slice(0,10);
         if(comboCandidates.length>=2){
-          const comboHtml=(count)=>{const chosen=comboCandidates.slice(0,count),probability=chosen.reduce((acc,x)=>acc*x.pick.probability,1);return '<div class="pr-combo"><h4>COMBINADA AUTOMÁTICA · '+count+' PARTIDOS</h4>'+chosen.map(x=>'<p><b>'+esc(x.home)+' – '+esc(x.away)+'</b><br>'+esc(x.pick.market)+' · '+Math.round(x.pick.probability*100)+'%</p>').join('')+'<strong>Probabilidad conjunta orientativa: '+Math.round(probability*100)+'%</strong></div>';};
-          root.innerHTML+='<div class="pr-auto-combos"><h3>✦ CANCHA · COMBINADAS AUTOMÁTICAS</h3><p class="pr-sample">CANCHA elige una selección por partido, sin que tengas que marcar nada. Solo combina encuentros distintos.</p>'+comboHtml(2)+(comboCandidates.length>=3?comboHtml(3):'')+'<p class="pr-sample">Probabilidad conjunta aproximada multiplicando las estimaciones individuales; presupone independencia entre partidos. No es una probabilidad calibrada ni garantiza resultados. No hay cuotas verificadas, por lo que no se calcula rentabilidad.</p></div>';
-        }
-        if(comboCandidates.length>=2){
           const superPicks=comboCandidates.slice(0,5);
           const superProbability=superPicks.reduce((acc,x)=>acc*x.pick.probability,1);
-          const superHtml='<div class="pr-super-combo"><div class="pr-super-head"><h3>🚀 CANCHA · SUPERCOMBINADA IA</h3><span>'+superPicks.length+' SELECCIONES</span></div>'+superPicks.map((x,index)=>'<div class="pr-super-pick"><span><b>'+ (index+1)+'. '+esc(x.home)+' – '+esc(x.away)+'</b><small>'+esc(x.pick.market)+'</small></span><strong>'+Math.round(x.pick.probability*100)+'%</strong></div>').join('')+'<div class="pr-super-total"><small>Probabilidad conjunta matemática orientativa</small><strong>'+ (superProbability*100).toFixed(2).replace('.',',')+'%</strong></div><p class="pr-sample">Selecciones automáticas: la de mayor probabilidad de cada partido, siempre por encima del 65%. La probabilidad conjunta se obtiene multiplicando las estimaciones individuales y presupone independencia entre partidos. No está calibrada; no garantiza el resultado ni implica rentabilidad. Cuotas no disponibles.</p></div>';
+          const comboOffers=['Betfair','Bet365'].map(bookmaker=>{
+            const legs=superPicks.map(x=>verifiedPickQuote(x.match.id,x.pick)?.offers?.find(o=>o.bookmaker===bookmaker)?.price);
+            if(legs.some(price=>!Number.isFinite(Number(price))||Number(price)<=1))return null;
+            return {bookmaker,price:legs.reduce((acc,value)=>acc*Number(value),1)};
+          }).filter(Boolean).sort((a,b)=>b.price-a.price);
+          const bestCombo=comboOffers[0]??null;
+          const comboRows=superPicks.map((x,index)=>{
+            const best=verifiedPickQuote(x.match.id,x.pick)?.best;
+            const quoteText=best?' · '+esc(best.bookmaker)+' '+oddsPrice(best.price):' · cuota individual no devuelta';
+            return '<div class="pr-super-pick"><span><b>'+(index+1)+'. '+esc(x.home)+' – '+esc(x.away)+'</b><small>'+esc(x.pick.market)+quoteText+'</small></span><strong>'+Math.round(x.pick.probability*100)+'%</strong></div>';
+          }).join('');
+          const comboPriceHtml=bestCombo
+            ?'<div class="pr-super-total"><small>Mejor cuota conjunta real · '+esc(bestCombo.bookmaker)+' · apuesta 1,00 €</small><strong>'+oddsPrice(bestCombo.price)+'</strong><small>Retorno potencial: '+euro(bestCombo.price)+' · beneficio neto: '+euro(bestCombo.price-1)+'</small></div>'
+            :'<p class="pr-sample">No hay cuota conjunta verificable: falta al menos una cuota individual en la misma casa. No se mezclan casas ni se inventa una cuota Bet Builder.</p>';
+          const offersHtml=comboOffers.length>1?'<p class="pr-sample">Comparación: '+comboOffers.map(o=>esc(o.bookmaker)+' '+oddsPrice(o.price)).join(' · ')+'</p>':'';
+          const superHtml='<div class="pr-super-combo"><div class="pr-super-head"><h3>🚀 CANCHA · SUPERCOMBINADA IA</h3><span>'+superPicks.length+' SELECCIONES</span></div>'+comboRows+'<div class="pr-super-total"><small>Probabilidad conjunta estimada · orientativa</small><strong>'+(superProbability*100).toFixed(2).replace('.',',')+'%</strong></div>'+comboPriceHtml+offersHtml+'<p class="pr-sample">CANCHA elige automáticamente una selección por partido (más del 65%), sin repetir encuentros. La cuota conjunta solo se calcula cuando todas las cuotas individuales están verificadas en la misma casa. La probabilidad conjunta presupone independencia y no está calibrada; no garantiza resultados.</p></div>';
           root.innerHTML+=superHtml;
         }
         const total=[...historyByLeague.values()].reduce((sum,rows)=>sum+rows.length,0);
