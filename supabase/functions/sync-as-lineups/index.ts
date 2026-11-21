@@ -185,7 +185,7 @@ Deno.serve(async (request) => {
     const from = new Date(now.getTime() - 45 * 86400000).toISOString();
     const to = new Date(now.getTime() + 5 * 86400000).toISOString();
     const { data, error } = await db.from("partidos")
-      .select("id,jornada,temporada,fecha_utc,estado,equipo_local_id,equipo_visitante_id,local:equipos!partidos_equipo_local_id_fkey(nombre),visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
+      .select("id,jornada,temporada,fecha_utc,estado,as_match_url,equipo_local_id,equipo_visitante_id,local:equipos!partidos_equipo_local_id_fkey(nombre),visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
       .eq("competid_id", "140").eq("temporada", "2026/27")
       .gte("fecha_utc", from).lte("fecha_utc", to).order("fecha_utc", { ascending: true });
     if (error) throw new Error("No se pudieron leer partidos de LaLiga: " + error.message);
@@ -216,7 +216,7 @@ Deno.serve(async (request) => {
 
     const explicitUrl = typeof body?.as_url === "string" ? body.as_url : null;
     const explicitMatchId = Number(body?.match_id);
-    let pages: Array<{ url: string; round: number | null }> = [];
+    let pages: Array<{ url: string; round: number | null; match_id?: number }> = [];
     let roundsChecked: number[] = [];
 
     if (explicitUrl) {
@@ -267,6 +267,11 @@ Deno.serve(async (request) => {
           continue;
         }
         matchesFound++;
+        if (match.as_match_url !== page.url) {
+          const { error: urlError } = await db.from("partidos").update({ as_match_url: page.url }).eq("id", match.id);
+          if (urlError) throw new Error("No se pudo guardar URL de AS: " + urlError.message);
+          match.as_match_url = page.url;
+        }
         const teams = parseTeamBlocks(lines);
         if (teams.length !== 2 || teams.some((team) => team.starters.length !== 11)) {
           outcomes.push({ match_id: match.id, url: page.url, status: "lineups_not_published_or_markup_changed", parsed_teams: teams.length, starter_counts: teams.map((t) => t.starters.length) });
