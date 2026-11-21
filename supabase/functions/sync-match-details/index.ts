@@ -58,7 +58,7 @@ function normalizeTeam(value: unknown): string {
     .replace(/\s+/g, " ").trim();
   const aliases: Record<string, string> = {
     "bayern munchen": "bayern", "bayern munich": "bayern",
-    "1 fc koln": "koln", "fc koln": "koln", "cologne": "koln",
+    "1 fc koln": "koln", "1 koln": "koln", "fc koln": "koln", "cologne": "koln",
     "paris saint germain": "psg", "paris sg": "psg",
     "manchester united": "man utd", "man utd": "man utd",
     "manchester city": "man city", "man city": "man city",
@@ -67,7 +67,7 @@ function normalizeTeam(value: unknown): string {
     "atletico de madrid": "atletico madrid",
     "real madrid cf": "real madrid", "fc barcelona": "barcelona",
     "rcd espanyol de barcelona": "espanyol", "espanyol barcelona": "espanyol",
-    "athletic bilbao": "athletic club",
+    "athletic bilbao": "athletic",
     "brighton and hove albion": "brighton",
     "wolverhampton wanderers": "wolves",
     "newcastle united": "newcastle", "tottenham hotspur": "tottenham",
@@ -148,9 +148,14 @@ Deno.serve(async (request) => {
 
   try {
     const now = new Date();
-    const dayStart = new Date(new Intl.DateTimeFormat("en-CA", {
-      timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
-    }).format(now) + "T00:00:00+01:00").toISOString();
+    const [year, month, day] = madridDate(now).split("-").map(Number);
+    const offsetLabel = new Intl.DateTimeFormat("en-US", { timeZone: TZ, timeZoneName: "shortOffset" })
+      .formatToParts(now).find((part) => part.type === "timeZoneName")?.value ?? "GMT+0";
+    const offsetMatch = offsetLabel.match(/GMT([+-])(\\d{1,2})(?::(\\d{2}))?/);
+    const offsetMinutes = offsetMatch
+      ? (offsetMatch[1] === "-" ? -1 : 1) * (Number(offsetMatch[2]) * 60 + Number(offsetMatch[3] ?? 0))
+      : 0;
+    const dayStart = new Date(Date.UTC(year, month - 1, day) - offsetMinutes * 60000).toISOString();
     const { data: previousRuns, error: usageError } = await db.from("match_details_sync_runs")
       .select("api_requests").gte("started_at", dayStart);
     if (usageError) throw new Error("No se pudo comprobar el límite diario: " + usageError.message);
@@ -167,8 +172,8 @@ Deno.serve(async (request) => {
     const from = madridDate(new Date(now.getTime() - 7 * 86400000));
     const to = madridDate(now);
     const fixturesUrl = new URLSearchParams({ from, to, timezone: TZ });
-    const listData = await apiGet("/fixtures?" + fixturesUrl.toString());
     apiRequests++;
+    const listData = await apiGet("/fixtures?" + fixturesUrl.toString());
     const fixtures = (Array.isArray(listData.response) ? listData.response : [])
       .filter((fixture: any) => LEAGUES.has(Number(fixture?.league?.id)) &&
         FINAL_STATUSES.has(String(fixture?.fixture?.status?.short ?? "")))
@@ -196,8 +201,8 @@ Deno.serve(async (request) => {
       const match = entry.match as MatchRow;
       const fixtureId = Number(fixture.fixture.id);
       try {
-        const detailData = await apiGet("/fixtures?id=" + fixtureId);
         apiRequests++;
+        const detailData = await apiGet("/fixtures?id=" + fixtureId);
         const detail = Array.isArray(detailData.response) ? detailData.response[0] : null;
         if (!detail) {
           outcomes.push({ fixture_id: fixtureId, match_id: match.id, status: "empty_fixture_detail" });
