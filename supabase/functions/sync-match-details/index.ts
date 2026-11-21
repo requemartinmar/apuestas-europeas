@@ -169,7 +169,7 @@ Deno.serve(async (request) => {
       return reply({ ok: true, skipped: true, used_today: usedToday, daily_limit: DAILY_API_LIMIT });
     }
 
-    const datesToCheck = [1, 2, 3].map((daysAgo) =>
+    const datesToCheck = [1, 0].map((daysAgo) =>
       madridDate(new Date(now.getTime() - daysAgo * 86400000))
     ).slice(0, Math.min(3, Math.max(0, remaining - 1)));
     const fixtureMap = new Map<number, any>();
