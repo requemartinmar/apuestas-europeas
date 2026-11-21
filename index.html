@@ -677,11 +677,12 @@
       const rows=data?.matches??[];
       const matched=rows.filter(x=>x.matched);
       if(!matched.length){
-        const msg=rows.length?'No se ha podido emparejar con seguridad ningún partido con el evento del proveedor.':'No hay partidos futuros para consultar en esta selección.';
-        const diag=data?.diagnostics;
-        const detail=diag?(' OddsPapi consultó '+Number(diag.tournamentsQueried||0)+' competiciones y devolvió '+Number(diag.providerFixtures||0)+' eventos con cuotas; '+Number(diag.matchedMatches||0)+' coincidencias seguras.'): '';
-        root.innerHTML='<div class="odds-state">'+msg+' No se mostrarán cuotas de otro encuentro.'+esc(detail)+'</div>';
-        source.textContent='Consulta: '+oddsTime(data?.capturedAt)+' · Fuente: OddsPapi.';
+        const msg=rows.length?'Ninguna fuente ha podido asociar con seguridad las cuotas a estos partidos.':'No hay partidos futuros para consultar en esta selección.';
+        const diag=data?.diagnostics,extra=data?.additionalSource;
+        const detail=diag?(' OddsPapi: '+Number(diag.providerFixtures||0)+' eventos; '+Number(diag.matchedMatches||0)+' coincidencias.'): '';
+        const second=extra?.message?' The Odds API: '+extra.message:extra?.diagnostics?(' The Odds API: '+Number(extra.diagnostics.matchedMatches||0)+' coincidencias; '+Number(extra.diagnostics.verifiedQuotes||0)+' cuotas.'): '';
+        root.innerHTML='<div class="odds-state">'+msg+' No se mostrarán cuotas de otro encuentro.'+esc(detail+second)+'</div>';
+        source.textContent='Consulta: '+oddsTime(data?.capturedAt)+' · Fuentes: OddsPapi + The Odds API.';
         return;
       }
       const books=[{key:'Betfair',label:'Betfair'},{key:'Bet365',label:'Bet365'}];
@@ -777,7 +778,7 @@
           status:'ok',source:'OddsPapi + The Odds API',
           capturedAt:primaryData?.capturedAt??extraData?.capturedAt??new Date().toISOString(),
           matches:mergedMatches,
-          diagnostics:primaryData?.diagnostics??{},
+          diagnostics:primaryData?.diagnostics??extraData?.diagnostics??{},
           additionalSource:{
             name:'The Odds API',
             status:extraData?.status??(extraError?'error':'unavailable'),
