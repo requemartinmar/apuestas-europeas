@@ -14,6 +14,7 @@ const RETRY_EMPTY_AFTER_HOURS = 72;
 
 type MatchRow = {
   id: number;
+  api_fixture_id: number | null;
   competid_id: string;
   fecha_utc: string;
   estadisticas_estado: string;
@@ -125,8 +126,8 @@ function eventKey(event: any, index: number): string {
 }
 
 function shouldRetry(status: string, confirmedAt: string | null, now: number): boolean {
-  if (status === "AVAILABLE" || status === "PENDING") return true;
-  if (!confirmedAt) return true;
+  if (status === "AVAILABLE") return false;
+  if (status === "PENDING" || !confirmedAt) return true;
   const confirmed = new Date(confirmedAt).getTime();
   return !Number.isFinite(confirmed) || now - confirmed >= RETRY_EMPTY_AFTER_HOURS * 3600000;
 }
@@ -213,21 +214,37 @@ Deno.serve(async (request) => {
     const to = datesToCheck[0] ?? madridDate(now);
     fixturesSeen = fixtures.length;
 
-    const windowStart = new Date(now.getTime() - 8 * 86400000).toISOString();
+    const windowStart = new Date(now.getTime() - 30 * 86400000).toISOString();
     const { data: matches, error: matchesError } = await db.from("partidos")
-      .select("id,competid_id,fecha_utc,estadisticas_estado,estadisticas_confirmada_at,eventos_estado,eventos_confirmados_at,alineaciones_estado,alineaciones_confirmadas_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
+      .select("id,api_fixture_id,competid_id,fecha_utc,estadisticas_estado,estadisticas_confirmada_at,eventos_estado,eventos_confirmados_at,alineaciones_estado,alineaciones_confirmadas_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
       .eq("estado", "FINISHED").in("competid_id", [...LEAGUES].map(String))
       .gte("fecha_utc", windowStart).lte("fecha_utc", now.toISOString());
     if (matchesError) throw new Error("No se pudieron cargar partidos de Supabase: " + matchesError.message);
     const rows = (matches ?? []) as MatchRow[];
-    const candidates = fixtures.map((fixture: any) => ({ fixture, match: findMatch(rows, fixture) }))
-      .filter((entry: any) => entry.match)
-      .filter((entry: any) => {
-        const match = entry.match as MatchRow;
-        return shouldRetry(match.estadisticas_estado, match.estadisticas_confirmada_at, now.getTime()) ||
-          shouldRetry(match.eventos_estado, match.eventos_confirmados_at, now.getTime()) ||
-          shouldRetry(match.alineaciones_estado, match.alineaciones_confirmadas_at, now.getTime());
-      });
+    // Persist external fixture IDs for every matched fixture so quota-limited
+    // runs can resume older pending matches on the following day.
+    for (const fixture of fixtures) {
+      const matched = findMatch(rows, fixture);
+      const fixtureId = Number(fixture?.fixture?.id);
+      if (!matched || !Number.isInteger(fixtureId) || fixtureId <= 0) continue;
+      if (matched.api_fixture_id !== fixtureId) {
+        const { error } = await db.from("partidos").update({ api_fixture_id: fixtureId }).eq("id", matched.id);
+        if (error) throw new Error("No se pudo guardar fixture_id del partido " + matched.id + ": " + error.message);
+        matched.api_fixture_id = fixtureId;
+      }
+    }
+    const candidates = rows
+      .filter((match) => Number.isInteger(Number(match.api_fixture_id)) && Number(match.api_fixture_id) > 0)
+      .filter((match) =>
+        shouldRetry(match.estadisticas_estado, match.estadisticas_confirmada_at, now.getTime()) ||
+        shouldRetry(match.eventos_estado, match.eventos_confirmados_at, now.getTime()) ||
+        shouldRetry(match.alineaciones_estado, match.alineaciones_confirmadas_at, now.getTime())
+      )
+      .sort((a, b) => new Date(a.fecha_utc).getTime() - new Date(b.fecha_utc).getTime())
+      .map((match) => ({
+        match,
+        fixture: { fixture: { id: Number(match.api_fixture_id), date: match.fecha_utc }, league: { id: Number(match.competid_id) } },
+      }));
 
     const maxDetails = Math.max(0, remaining - datesToCheck.length);
     for (const entry of candidates.slice(0, maxDetails)) {
