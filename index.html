@@ -632,8 +632,7 @@
       return '<details class="pr-all-markets"><summary>Ver todos los mercados y cuotas disponibles ('+rows.length+')</summary><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th><th>Mercado</th><th>Selección / jugador</th><th>Cuota</th><th>Actualización</th></tr></thead><tbody>'+rows.join('')+'</tbody></table></div></details>';
     }
     function euro(value){return Number(value).toFixed(2).replace('.',',')+' €';}
-    function euro(value){return Number(value).toFixed(2).replace('.',',')+' €';}
-    function renderInlineMatchOdds(matchId){
+        function renderInlineMatchOdds(matchId){
       const data=bookmakerOddsCache?.data;
       const match=(data?.matches??[]).find(x=>String(x.id)===String(matchId)&&x.matched);
       if(!match)return '<div class="pr-inline-odds"><h4>◉ CUOTAS REALES · BETFAIR EXCHANGE / BET365</h4><p class="pr-sample">Sin cuotas verificadas asociadas a este partido. No se calculan retornos.</p></div>';
