@@ -6,7 +6,6 @@ const BOOKS = [
   { api: "betfair-ex", key: "Betfair Exchange", display: "Betfair Exchange" },
   { api: "bet365", key: "Bet365", display: "Bet365" },
 ];
-const DAZN_LABEL = "DAZN Bet";
 const TARGET_TOURNAMENTS = new Map([
   ["laliga", "spain"],
   ["premier-league", "england"],
@@ -33,6 +32,7 @@ type NormalizedBook = {
   btts: { yes: QuoteSide; no: QuoteSide };
   updatedAt: string | null;
   capturedAt: string;
+  markets: Array<{marketId:string;marketName:string;marketType:string;period:string;handicap:number|null;playerProp:boolean;outcomes:Array<{outcomeId:string;outcomeName:string;playerId:string;playerName:string|null;price:number|null;active:boolean;changedAt:string|null}>}>;
 };
 
 function response(body: unknown, status = 200) {
@@ -87,7 +87,7 @@ function latestStamp(values: Array<string | null>): string | null {
   return values.filter((x): x is string => !!x && Number.isFinite(Date.parse(x)))
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
 }
-function normalizeBook(book: any, capturedAt: string): NormalizedBook {
+function normalizeBook(book: any, capturedAt: string, catalogue: Map<string, any>): NormalizedBook {
   const oneXtwo = outcomesFor(book, "101");
   const btts = outcomesFor(book, "104");
   const h = priceAt(oneXtwo["101"]);
@@ -113,7 +113,41 @@ function normalizeBook(book: any, capturedAt: string): NormalizedBook {
     btts: { yes: yes.price, no: no.price },
     updatedAt: latestStamp(stamps),
     capturedAt,
+    markets: normalizeAllMarkets(book, capturedAt, catalogue),
   };
+}
+function normalizeAllMarkets(book: any, capturedAt: string, catalogue: Map<string, any>) {
+  const rows: NormalizedBook["markets"] = [];
+  for (const [marketId, market] of Object.entries(book?.markets ?? {}) as Array<[string, any]>) {
+    if (!market || market.marketActive === false) continue;
+    const meta = catalogue.get(String(marketId)) ?? {};
+    const outcomes: NormalizedBook["markets"][number]["outcomes"] = [];
+    for (const [outcomeId, outcome] of Object.entries(market.outcomes ?? {}) as Array<[string, any]>) {
+      for (const [playerId, player] of Object.entries(outcome?.players ?? {}) as Array<[string, any]>) {
+        const price = validPrice(player?.price);
+        const changedAt = typeof player?.changedAt === "string" && Number.isFinite(Date.parse(player.changedAt)) ? player.changedAt : null;
+        outcomes.push({
+          outcomeId: String(outcomeId),
+          outcomeName: String(meta.outcomes?.find((x: any) => String(x.outcomeId) === String(outcomeId))?.outcomeName ?? player?.bookmakerOutcomeId ?? outcomeId),
+          playerId: String(playerId),
+          playerName: typeof player?.playerName === "string" ? player.playerName : null,
+          price: player?.active === false ? null : price,
+          active: player?.active !== false && market.marketActive !== false,
+          changedAt,
+        });
+      }
+    }
+    if (outcomes.length) rows.push({
+      marketId: String(marketId),
+      marketName: String(meta.marketName ?? "Mercado " + marketId),
+      marketType: String(meta.marketType ?? "unknown"),
+      period: String(meta.period ?? "unknown"),
+      handicap: Number.isFinite(Number(meta.handicap)) ? Number(meta.handicap) : null,
+      playerProp: meta.playerProp === true,
+      outcomes,
+    });
+  }
+  return rows;
 }
 function quoteRows(matchId: number, books: Record<string, NormalizedBook>) {
   const rows: any[] = [];
@@ -188,6 +222,7 @@ function matchFixture(match: InputMatch, fixtures: any[]) {
 const requestWindow = new Map<string, { start: number; count: number }>();
 let cachedProviderData: { at: number; fixtures: any[] } | null = null;
 let cachedTournaments: { at: number; ids: number[] } | null = null;
+let cachedMarketCatalogue: { at: number; byId: Map<string, any> } | null = null;
 
 function isAllowedPublicKey(req: Request): boolean {
   const supplied = req.headers.get("apikey") ?? "";
@@ -234,6 +269,12 @@ Deno.serve(async (req: Request) => {
   if (!matches.length) return response({ status: "ok", source: PROVIDER, capturedAt, matches: [] });
 
   try {
+    if (!cachedMarketCatalogue || now - cachedMarketCatalogue.at >= CACHE_TTL) {
+      const marketPayload = await apiGet("/markets", { language: "es" }, apiKey);
+      const marketRows = asArray(marketPayload);
+      cachedMarketCatalogue = { at: now, byId: new Map(marketRows.map((m: any) => [String(m.marketId), m])) };
+    }
+
     if (!cachedTournaments || now - cachedTournaments.at >= CACHE_TTL) {
       const tournamentPayload = await apiGet("/tournaments", { sportId: "10", language: "en" }, apiKey);
       const tournaments = asArray(tournamentPayload);
@@ -309,7 +350,7 @@ Deno.serve(async (req: Request) => {
       const normalized: Record<string, NormalizedBook> = {};
       for (const book of BOOKS) {
         const raw = rawBooks[book.api];
-        if (raw) normalized[book.key] = normalizeBook(raw, capturedAt);
+        if (raw) normalized[book.key] = normalizeBook(raw, capturedAt, cachedMarketCatalogue!.byId);
       }
       return {
         id: match.id, home: match.home, away: match.away, kickoff: match.kickoff,
@@ -367,8 +408,8 @@ Deno.serve(async (req: Request) => {
     const matchedCount = resultMatches.filter(x => x.matched).length;
     return response({
       status: "ok", source: PROVIDER, capturedAt, stored,
-      bookmakerNames: [...BOOKS.map(x => x.display), DAZN_LABEL],
-      daznStatus: "not_confirmed",
+      bookmakerNames: BOOKS.map(x => x.display),
+      marketCoverage: "all_markets_returned_by_provider",
       diagnostics: {
         tournamentsQueried: cachedTournaments.ids.length,
         providerFixtures: cachedProviderData!.fixtures.length,
