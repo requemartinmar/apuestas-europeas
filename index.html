@@ -264,7 +264,7 @@
           playerStats=data??[];
         }
       }
-      const goals=events.filter(e=>String(e.tipo??'').toLowerCase()==='goal'&&!/missed|cancel|disallowed/i.test(String(e.detalle??'')+' '+String(e.comentario??'')));
+      const goals=events.filter(e=>String(e.tipo??'').toLowerCase()==='goal'&&e.jugador&&!/missed|cancel|disallowed/i.test(String(e.detalle??'')+' '+String(e.comentario??'')));
       const goalHtml=goals.length?goals.map(e=>'<div class="match-goal"><span class="match-minute">'+esc(eventMinute(e))+'</span><span>⚽ <b>'+esc(e.jugador??'Goleador no identificado')+'</b> · '+esc(e.equipo??(e.lado_equipo==='local'?home:away))+(e.asistente?' · Asistencia: '+esc(e.asistente):'')+(String(e.detalle??'').toLowerCase().includes('own goal')?' · En propia puerta':'')+'</span></div>').join(''):'<p class="match-muted">No hay goleadores disponibles en la fuente para este encuentro.</p>';
       const definitions=[
         ['Posesión',s?.posesion_local,s?.posesion_visitante,'%'],
@@ -283,28 +283,54 @@
       ];
       const available=definitions.filter(r=>r[1]!=null||r[2]!=null);
       const statHtml=available.length?'<table class="match-detail-table"><tbody>'+available.map(r=>'<tr><td>'+esc(r[0])+'</td><td>'+esc(pair(r[1],r[2],r[3]))+'</td></tr>').join('')+'</tbody></table>':'<p class="match-muted">Todavía no hay estadísticas detalladas verificadas para este partido.</p>';
-      const eventHtml=events.length?'<div class="match-events">'+events.map(e=>'<div class="match-event"><span class="match-minute">'+esc(eventMinute(e))+'</span><span>'+eventKind(e)+' '+esc(String(e.tipo??'').toLowerCase()==='goal'?'Gol':String(e.tipo??'').toLowerCase()==='card'?'Tarjeta':String(e.tipo??'').toLowerCase()==='subst'?'Cambio':e.tipo??'Acontecimiento')+' · '+esc(e.jugador??'')+(e.detalle?' · '+esc(e.detalle):'')+(e.comentario?' · '+esc(e.comentario):'')+'</span></div>').join('')+'</div>':'<p class="match-muted">No hay acontecimientos disponibles todavía.</p>';
+      const visibleEvents=events.filter(e=>e.tipo||e.jugador||e.detalle||e.comentario);
+      const eventHtml=visibleEvents.length?'<div class="match-events">'+visibleEvents.map(e=>{
+        const label=String(e.tipo??'').toLowerCase()==='goal'?'Gol':String(e.tipo??'').toLowerCase()==='card'?'Tarjeta':String(e.tipo??'').toLowerCase()==='subst'?'Cambio':e.tipo??'';
+        const parts=[eventKind(e),label,e.jugador,e.detalle,e.comentario].filter(Boolean);
+        return '<div class="match-event"><span class="match-minute">'+esc(eventMinute(e))+'</span><span>'+parts.map(esc).join(' · ')+'</span></div>';
+      }).join('')+'</div>':'<p class="match-muted">No hay acontecimientos disponibles todavía.</p>';
       const kickoff=new Date(m.fecha_utc??0).getTime();
       const numberOrDash=v=>v==null?'—':Number(v).toFixed(Number(v)%1?2:0);
-      const playerRowsHtml=(teamRows)=>teamRows.map(p=>{
-        const current=m.estado==='FINISHED'?playerStats.find(r=>String(r.player_id)===String(p.jugador_id)&&Number(r.fixture_id)===Number(p.fixture_id)):null;
-        const prior=playerStats.filter(r=>String(r.player_id)===String(p.jugador_id)&&new Date(r.match_date).getTime()<kickoff&&Number(r.minutes_played??0)>0).sort((a,b)=>new Date(b.match_date)-new Date(a.match_date));
-        const last5=prior.slice(0,5),consecutiveStarts=prior.findIndex(r=>r.is_substitute===true);
-        const startRun=consecutiveStarts<0?prior.length:consecutiveStarts;
-        const goalRun=prior.findIndex(r=>Number(r.goals??0)<1);
-        const scoringRun=goalRun<0?prior.length:goalRun;
-        const continuity=last5.length?last5.filter(r=>r.is_substitute!==true).length+'/5 titulares':'sin histórico';
-        const streak=scoringRun>0?scoringRun+' seguidos marcando':'sin racha goleadora';
-        const stat=(key)=>{
-          if(current?.[key]!=null)return numberOrDash(current[key]);
-          const values=last5.map(r=>r[key]).filter(v=>v!=null).map(Number).filter(Number.isFinite);
-          return values.length?numberOrDash(values.reduce((a,b)=>a+b,0)/values.length):'—';
-        };
-        const subMinute=p.minuto_entrada!=null?' · entra '+p.minuto_entrada+"'":p.minuto_salida!=null?' · sale '+p.minuto_salida+"'":'';
-        return '<tr><td><b>'+esc(p.jugador)+'</b><small>#'+esc(p.dorsal??'—')+' · '+esc(p.posicion??'—')+esc(subMinute)+'</small></td><td><span class="player-badge">'+(confirmedLineups?(p.titular?'TITULAR':'SUPLENTE'):(p.titular?'TITULAR ÚLTIMO':'SUPLENTE ÚLTIMO'))+'</span></td><td>'+stat('minutes_played')+'</td><td>'+stat('goals')+'</td><td>'+stat('assists')+'</td><td>'+stat('shots_total')+'</td><td>'+stat('shots_on_target')+'</td><td>'+stat('xg')+'</td><td>'+stat('fouls_committed')+'</td><td>'+stat('yellow_cards')+'/'+stat('red_cards')+'</td><td>'+stat('passes_total')+'</td><td>'+stat('tackles_total')+'</td><td>'+stat('rating')+'</td><td class="player-form">'+esc(continuity)+'<br>'+(startRun>0?esc(startRun)+' titularidades seguidas':'sin histórico de titularidades')+'<br>'+esc(streak)+'</td></tr>';
-      }).join('');
+      const playerMetricDefs=[
+        ['minutes_played','MIN'],['goals','GOL'],['assists','ASI'],['shots_total','REM'],
+        ['shots_on_target','AP'],['xg','xG'],['fouls_committed','FALTAS'],
+        ['yellow_cards','AMAR.'],['red_cards','ROJAS'],['passes_total','PASES'],
+        ['tackles_total','ENTR.'],['rating','NOTA']
+      ];
+      const playerTableHtml=(teamRows)=>{
+        const rows=teamRows.map(p=>{
+          const kickoff=new Date(m.fecha_utc??0).getTime();
+          const current=m.estado==='FINISHED'?playerStats.find(r=>String(r.player_id)===String(p.jugador_id)&&Number(r.fixture_id)===Number(p.fixture_id)):null;
+          const prior=playerStats.filter(r=>String(r.player_id)===String(p.jugador_id)&&new Date(r.match_date).getTime()<kickoff&&Number(r.minutes_played??0)>0).sort((a,b)=>new Date(b.match_date)-new Date(a.match_date)).slice(0,5);
+          const values=Object.fromEntries(playerMetricDefs.map(([key])=>{
+            if(m.estado==='FINISHED')return [key,current?.[key]!=null?Number(current[key]):null];
+            if(current?.[key]!=null)return [key,Number(current[key])];
+            const samples=prior.map(r=>r[key]).filter(v=>v!=null).map(Number).filter(Number.isFinite);
+            return [key,samples.length?samples.reduce((x,y)=>x+y,0)/samples.length:null];
+          }));
+          const priorAll=playerStats.filter(r=>String(r.player_id)===String(p.jugador_id)&&new Date(r.match_date).getTime()<kickoff&&Number(r.minutes_played??0)>0).sort((a,b)=>new Date(b.match_date)-new Date(a.match_date));
+          const consecutiveStarts=priorAll.findIndex(r=>r.is_substitute===true);
+          const startRun=consecutiveStarts<0?priorAll.length:consecutiveStarts;
+          const scoringRun=prior.findIndex(r=>Number(r.goals??0)<1);
+          const scoringStreak=scoringRun<0?prior.length:scoringRun;
+          const continuity=prior.length?prior.filter(r=>r.is_substitute!==true).length+'/5 titulares':'';
+          const streak=scoringStreak>0?scoringStreak+' seguidos marcando':'';
+          const subMinute=p.minuto_entrada!=null?' · entra '+p.minuto_entrada+"'":p.minuto_salida!=null?' · sale '+p.minuto_salida+"'":'';
+          return {p,values,startRun,continuity,streak,subMinute};
+        });
+        const visibleMetrics=playerMetricDefs.filter(([key])=>rows.some(row=>row.values[key]!=null));
+        const head='<thead><tr><th>JUGADOR</th><th>ROL</th>'+visibleMetrics.map(([,label])=>'<th>'+label+'</th>').join('')+'<th>RACHA PREVIA</th></tr></thead>';
+        const body=rows.map(row=>{
+          const {p,values,startRun,continuity,streak,subMinute}=row;
+          const cells=visibleMetrics.map(([key])=>'<td>'+(values[key]==null?'':numberOrDash(values[key]))+'</td>').join('');
+          const history=[continuity,startRun>0?startRun+' titularidades seguidas':'',streak].filter(Boolean).join('<br>');
+          const playerMeta=[p.dorsal!=null?'#'+p.dorsal:'',p.posicion??'',subMinute.trim()].filter(Boolean).join(' · ');
+          return '<tr><td><b>'+esc(p.jugador)+'</b>'+(playerMeta?'<small>'+esc(playerMeta)+'</small>':'')+'</td><td><span class="player-badge">'+(confirmedLineups?(p.titular?'TITULAR':'SUPLENTE'):(p.titular?'TITULAR ÚLTIMO':'SUPLENTE ÚLTIMO'))+'</span></td>'+cells+'<td class="player-form">'+history+'</td></tr>';
+        }).join('');
+        return '<div class="player-table-wrap"><table class="player-table">'+head+'<tbody>'+body+'</tbody></table></div>';
+      };
       const teams=[...new Map(lineups.map(p=>[String(p.equipo_id??p.equipo),{id:p.equipo_id,name:p.equipo,formation:p.formacion,sourceUrl:p.fuente_url??null,rows:lineups.filter(x=>String(x.equipo_id??x.equipo)===String(p.equipo_id??p.equipo))}])).values()];
-      const playerHtml=teams.length?'<p class="player-explain">'+(confirmedLineups?'Alineación registrada para este partido.':'No hay XI confirmado: se muestran jugadores utilizados en las últimas alineaciones disponibles y medias de sus últimos cinco partidos.')+'</p>'+teams.map(team=>'<div class="player-team"><h4>'+esc(team.name)+' <span>· '+esc(confirmedLineups?(team.formation??'formación no disponible'):'últimas alineaciones registradas')+'</span>'+(team.sourceUrl?' · <a href="'+esc(team.sourceUrl)+'" target="_blank" rel="noopener noreferrer">Fuente AS</a>':'')+'</h4><div class="player-table-wrap"><table class="player-table"><thead><tr><th>JUGADOR</th><th>ROL</th><th>MIN</th><th>GOL</th><th>ASI</th><th>REM</th><th>AP</th><th>xG</th><th>FALTAS</th><th>TARJ.</th><th>PASES</th><th>ENTR.</th><th>NOTA</th><th>RACHA PREVIA</th></tr></thead><tbody>'+playerRowsHtml(team.rows)+'</tbody></table></div></div>').join(''):'<p class="match-muted">Alineaciones y estadísticas individuales todavía no disponibles para este encuentro. Se mostrarán cuando la fuente las proporcione.</p>';
+      const playerHtml=teams.length?'<p class="player-explain">'+(confirmedLineups?'Alineación registrada para este partido.':'No hay XI confirmado: se muestran jugadores utilizados en las últimas alineaciones disponibles y medias de sus últimos cinco partidos.')+'</p>'+teams.map(team=>'<div class="player-team"><h4>'+esc(team.name)+' <span>· '+esc(confirmedLineups?(team.formation??''):'últimas alineaciones registradas')+'</span>'+(team.sourceUrl?' · <a href="'+esc(team.sourceUrl)+'" target="_blank" rel="noopener noreferrer">Fuente AS</a>':'')+'</h4>'+playerTableHtml(team.rows)+'</div>').join(''):'<p class="match-muted">Alineaciones y estadísticas individuales todavía no disponibles para este encuentro. Se mostrarán cuando la fuente las proporcione.</p>';
       const playerExplain='La continuidad se calcula con los últimos partidos anteriores disponibles del jugador. Para un partido futuro se muestran medias de los últimos cinco partidos y la última titularidad registrada, no una alineación confirmada. xG solo aparece si la fuente lo proporciona.';
       const source=s?.fuente??'Fuente pendiente';
       $('#match-detail-body').innerHTML=
@@ -577,7 +603,10 @@
       }}
     function setEntry(id,value){const el=$(`#entry-${id}`);if(el)el.value=value??''}
     function pickMatch(){const id=$('#match-picker').value;if(!id)return;const m=matchesForView().find(x=>String(x.id)===id);if(!m)return;const h=m.equipo_local?.nombre??m.home_name,a=m.equipo_visitante?.nombre??m.away_name;setEntry('competition',m.competid_id);setEntry('date',dateTimeInput(m.fecha_utc));setEntry('home',h);setEntry('away',a);setEntry('home-goals',m.goles_local);setEntry('away-goals',m.goles_visitante)}
-    function saveEntry(){const home=$('#entry-home').value.trim(),away=$('#entry-away').value.trim();if(!home||!away){$('#save-status').textContent='Escribe los dos equipos antes de guardar.';return}const compId=$('#entry-competition').value,comp=Object.values(competitions).find(c=>c.id===compId);const n=id=>{const v=$(`#entry-${id}`).value;return v===''?null:Number(v)};const d=$('#entry-date').value?new Date($('#entry-date').value):new Date();const record={id:`local-${Date.now()}`,local_record:true,linked_match_id:$('#match-picker').value||null,competid_id:compId,competition_name:comp?.name??'Competición',fecha_utc:d.toISOString(),estado:'FINISHED',goles_local:n('home-goals'),goles_visitante:n('away-goals'),home_name:home,away_name:away,personal_stats:{posesion_local:n('pos-home'),posesion_visitante:n('pos-away'),tiros_puerta_local:n('shots-home'),tiros_puerta_visitante:n('shots-away'),corners_local:n('corners-home'),corners_visitante:n('corners-away'),tarjetas_amarillas_local:n('yellow-home'),tarjetas_amarillas_visitante:n('yellow-away'),tarjetas_rojas_local:n('red-home'),tarjetas_rojas_visitante:n('red-away'),fuente:document.querySelector('#match-image').files?.length?'Captura revisada':'Registro manual'},notes:$('#entry-notes').value.trim(),ocr_text:$('#ocr-text').value.trim(),created_at:new Date().toISOString()};state.manual.push(record);try{saveStored();$('#save-status').textContent='Guardado en este navegador.';if(dayOf(record.fecha_utc)===state.date)render();else renderSaved()}catch(error){state.manual.pop();$('#save-status').textContent='No se pudo guardar: almacenamiento del navegador lleno.'}}
+    function saveEntry(){const home=$('#entry-home').value.trim(),away=$('#entry-away').value.trim();if(!home||!away){$('#save-status').textContent='Escribe los dos equipos antes de guardar.';return}const compId=$('#entry-competition').value,comp=Object.values(competitions).find(c=>c.id===compId);const n=id=>{const v=$(`#entry-${id}`).value;return v===''?null:Number(v)};const d=$('#entry-date').value?new Date($('#entry-date').value):new Date();const homeGoals=n('home-goals'),awayGoals=n('away-goals');
+      const personalStats=Object.fromEntries(Object.entries({posesion_local:n('pos-home'),posesion_visitante:n('pos-away'),tiros_puerta_local:n('shots-home'),tiros_puerta_visitante:n('shots-away'),corners_local:n('corners-home'),corners_visitante:n('corners-away'),tarjetas_amarillas_local:n('yellow-home'),tarjetas_amarillas_visitante:n('yellow-away'),tarjetas_rojas_local:n('red-home'),tarjetas_rojas_visitante:n('red-away')}).filter(([,value])=>value!==null));
+      const notes=$('#entry-notes').value.trim(),ocrText=$('#ocr-text').value.trim();
+      const record={id:`local-${Date.now()}`,local_record:true,linked_match_id:$('#match-picker').value||null,competid_id:compId,competition_name:comp?.name??'Competición',fecha_utc:d.toISOString(),estado:'FINISHED',...(homeGoals!==null?{goles_local:homeGoals}:{}),...(awayGoals!==null?{goles_visitante:awayGoals}:{}),home_name:home,away_name:away,personal_stats:{...personalStats,fuente:document.querySelector('#match-image').files?.length?'Captura revisada':'Registro manual'},...(notes?{notes}:{}),...(ocrText?{ocr_text:ocrText}:{}),created_at:new Date().toISOString()};state.manual.push(record);try{saveStored();$('#save-status').textContent='Guardado en este navegador.';if(dayOf(record.fecha_utc)===state.date)render();else renderSaved()}catch(error){state.manual.pop();$('#save-status').textContent='No se pudo guardar: almacenamiento del navegador lleno.'}}
     function clearForm(){document.querySelectorAll('#personal-card input:not([type=file]),#personal-card textarea').forEach(el=>el.value='');$('#match-picker').value='';$('#image-preview').style.display='none';$('#image-preview').removeAttribute('src');$('#save-status').textContent=''}
     let imageUrl=null;$('#match-image').addEventListener('change',e=>{const f=e.target.files?.[0];if(!f)return;if(imageUrl)URL.revokeObjectURL(imageUrl);imageUrl=URL.createObjectURL(f);$('#image-preview').src=imageUrl;$('#image-preview').style.display='block';$('#ocr-status').textContent='Captura cargada localmente. Pulsa «Leer texto» y revisa el resultado.'});
     $('#read-image').addEventListener('click',async()=>{const f=$('#match-image').files?.[0];if(!f){$('#ocr-status').textContent='Primero selecciona una captura.';return}$('#read-image').disabled=true;$('#ocr-status').textContent='Descargando el lector OCR y procesando la captura…';try{const {createWorker}=await import('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js');const worker=await createWorker('spa+eng');const result=await worker.recognize(f);$('#ocr-text').value=result.data.text;await worker.terminate();$('#ocr-status').textContent='Texto reconocido. Verifica cada cifra y completa los campos antes de guardar.'}catch(e){$('#ocr-status').textContent='No se pudo leer automáticamente. Puedes transcribir los datos en los campos.';console.error(e)}finally{$('#read-image').disabled=false}});

@@ -309,10 +309,12 @@ Deno.serve(async (request) => {
         let hasStats = statValues.length > 0;
         if (hasStats) {
           const { data: existingStat, error: existingStatError } = await db.from("estadisticas_partido")
-            .select("id,fuente").eq("partido_id", match.id).maybeSingle();
+            .select("*").eq("partido_id", match.id).maybeSingle();
           if (existingStatError) throw new Error("Lectura de estadísticas: " + existingStatError.message);
           if (!existingStat || existingStat.fuente === "API-Football") {
-            const { error } = await db.from("estadisticas_partido").upsert(statsRow, { onConflict: "partido_id" });
+            const incomingStats = Object.fromEntries(Object.entries(statsRow).filter(([, value]) => value !== null && value !== undefined));
+            const mergedStats = existingStat ? { ...existingStat, ...incomingStats } : incomingStats;
+            const { error } = await db.from("estadisticas_partido").upsert(mergedStats, { onConflict: "partido_id" });
             if (error) throw new Error("Guardado de estadísticas: " + error.message);
             statisticsSaved++;
           } else {
@@ -431,15 +433,34 @@ Deno.serve(async (request) => {
             });
           }
         }
-        if (playerRows.length) {
-          const { error } = await db.from("player_match_stats").upsert(playerRows, {
+        const playerMetricKeys = [
+          "minutes_played", "shots_total", "shots_on_target", "goals", "assists", "saves", "rating",
+          "offsides", "passes_total", "passes_key", "pass_accuracy", "tackles_total", "tackles_blocks",
+          "interceptions", "duels_total", "duels_won", "dribbles_attempts", "dribbles_success",
+          "dribbles_past", "fouls_drawn", "fouls_committed", "yellow_cards", "red_cards",
+          "penalty_won", "penalty_committed", "penalty_scored", "penalty_missed", "penalty_saved", "xg", "npxg",
+        ];
+        const usefulPlayerRows = playerRows.filter((row: any) =>
+          playerMetricKeys.some((key) => row[key] !== null && row[key] !== undefined)
+        );
+        if (usefulPlayerRows.length) {
+          const { data: existingPlayers, error: existingPlayersError } = await db.from("player_match_stats")
+            .select("*").eq("provider", "api-football").eq("fixture_id", fixtureId);
+          if (existingPlayersError) throw new Error("Lectura de estadísticas previas de jugadores: " + existingPlayersError.message);
+          const existingByPlayer = new Map((existingPlayers ?? []).map((row: any) => [Number(row.player_id), row]));
+          const mergedPlayerRows = usefulPlayerRows.map((row: any) => {
+            const existing: any = existingByPlayer.get(Number(row.player_id));
+            const incoming = Object.fromEntries(Object.entries(row).filter(([, value]) => value !== null && value !== undefined));
+            return existing ? { ...existing, ...incoming } : incoming;
+          });
+          const { error } = await db.from("player_match_stats").upsert(mergedPlayerRows, {
             onConflict: "provider,fixture_id,player_id",
           });
           if (error) throw new Error("Guardado de estadísticas de jugadores: " + error.message);
         }
 
         const hasLineups = lineupRows.length > 0;
-        const hasPlayers = playerRows.length > 0;
+        const hasPlayers = usefulPlayerRows.length > 0;
         const confirmedAt = new Date().toISOString();
         const { error: matchUpdateError } = await db.from("partidos").update({
           alineaciones_estado: hasLineups || hasPlayers ? "AVAILABLE" : "EMPTY_RESPONSE",

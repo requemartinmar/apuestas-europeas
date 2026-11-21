@@ -374,9 +374,11 @@ Deno.serve(async (request) => {
             if (extraError) throw new Error("No se pudieron completar suplentes desde eventos: " + extraError.message);
           }
 
-          const statRows = combinedLineups.map((player) => {
+          const statRows = combinedLineups.flatMap((player) => {
             const relevant = (matchEvents ?? []).filter((event) => {
               if (normalizeTeam(event.equipo) !== normalizeTeam(player.equipo)) return false;
+              const type = String(event.tipo ?? "").toLowerCase();
+              if (type !== "goal" && type !== "card") return false;
               return samePlayer(event.jugador, player.jugador) || samePlayer(event.asistente, player.jugador);
             });
             const goals = relevant.filter((event) => String(event.tipo).toLowerCase() === "goal" &&
@@ -388,22 +390,28 @@ Deno.serve(async (request) => {
               /yellow/i.test(String(event.detalle ?? "")) && samePlayer(event.jugador, player.jugador)).length;
             const redCards = relevant.filter((event) => String(event.tipo).toLowerCase() === "card" &&
               /red/i.test(String(event.detalle ?? "")) && samePlayer(event.jugador, player.jugador)).length;
-            return {
+            if (!goals && !assists && !yellowCards && !redCards) return [];
+            return [{
               provider: "AS-events", fixture_id: -match.id, league_id: 140, season: 2026,
               match_date: match.fecha_utc, home_team: match.local, away_team: match.visitante,
               team_id: player.equipo_id, team_name: player.equipo,
               player_id: player.jugador_id, player_name: player.jugador,
               is_substitute: !player.titular, position: player.posicion,
-              goals, assists, yellow_cards: yellowCards, red_cards: redCards,
+              ...(goals > 0 ? { goals } : {}),
+              ...(assists > 0 ? { assists } : {}),
+              ...(yellowCards > 0 ? { yellow_cards: yellowCards } : {}),
+              ...(redCards > 0 ? { red_cards: redCards } : {}),
               data_quality: "partial", source_status: "verified_match_events",
               raw_payload: { provider: "partido_eventos", source_url: page.url, event_count: relevant.length },
               captured_at: new Date().toISOString(),
-            };
+            }];
           });
-          const { error: statsError } = await db.from("player_match_stats").upsert(statRows, {
-            onConflict: "provider,fixture_id,player_id",
-          });
-          if (statsError) throw new Error("No se pudieron guardar goles, asistencias y tarjetas por jugador: " + statsError.message);
+          if (statRows.length) {
+            const { error: statsError } = await db.from("player_match_stats").upsert(statRows, {
+              onConflict: "provider,fixture_id,player_id",
+            });
+            if (statsError) throw new Error("No se pudieron guardar goles, asistencias y tarjetas por jugador: " + statsError.message);
+          }
         }
         const { error: updateError } = await db.from("partidos").update({
           alineaciones_estado: "AVAILABLE",
