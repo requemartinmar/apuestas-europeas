@@ -306,7 +306,7 @@
     async function saveCanchaSnapshots(items){
       const now=Date.now();
       const rows=(items??[]).filter(x=>!x.m.local_record&&x.model&&x.m.id!=null&&x.m.estado==='SCHEDULED'&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>now)
-        .map(x=>({match_id:Number(x.m.id),competition_id:String(x.m.competid_id??''),kickoff_at:x.m.fecha_utc,home_team:x.m.equipo_local?.nombre??x.m.home_name??'Local',away_team:x.m.equipo_visitante?.nombre??x.m.away_name??'Visitante',model_version:CANCHA_MODEL_VERSION,prediction_payload:{scoreline:x.model.scoreline,lambda_home:x.model.lambdaHome,lambda_away:x.model.lambdaAway,metrics:x.model.metrics,sample:{home:x.model.home.n,away:x.model.away.n}}}));
+        .map(x=>({match_id:Number(x.m.id),competition_id:String(x.m.competid_id??''),kickoff_at:x.m.fecha_utc,home_team:x.m.equipo_local?.nombre??x.m.home_name??'Local',away_team:x.m.equipo_visitante?.nombre??x.m.away_name??'Visitante',model_version:CANCHA_MODEL_VERSION,prediction_payload:{scoreline:x.model.scoreline,lambda_home:x.model.lambdaHome,lambda_away:x.model.lambdaAway,metrics:x.model.metrics,team_metrics:{home:{corners:x.model.home.corners,cards:x.model.home.cards,shots_on_target:x.model.home.sot},away:{corners:x.model.away.corners,cards:x.model.away.cards,shots_on_target:x.model.away.sot}},sample:{home:x.model.home.n,away:x.model.away.n}}}));
       if(!rows.length)return;
       const {error}=await db.from('cancha_prediction_snapshots').upsert(rows,{onConflict:'match_id,model_version',ignoreDuplicates:true});
       if(error)throw error;
@@ -314,7 +314,22 @@
     }
     const comparisonPct=(hits,total)=>total?Math.round(hits/total*100)+'%':'—';
     function comparisonError(rows,predictedKey,actualKey){
-      const values=rows.map(r=>({p:Number(r.prediction_payload?.metrics?.[predictedKey]),a:Number(r.actual_payload?.[actualKey])})).filter(x=>Number.isFinite(x.p)&&Number.isFinite(x.a));
+      const values=rows.map(r=>{
+        let p=null;
+        if(predictedKey==='expected_corners'||predictedKey==='expected_cards'||predictedKey==='expected_shots_on_target'){
+          const key=predictedKey==='expected_corners'?'corners':predictedKey==='expected_cards'?'cards':'shots_on_target';
+          const home=r.prediction_payload?.team_metrics?.home?.[key],away=r.prediction_payload?.team_metrics?.away?.[key];
+          if(home==null||away==null)return null;
+          p=Number(home)+Number(away);
+        }else{
+          const raw=r.prediction_payload?.metrics?.[predictedKey];
+          if(raw==null)return null;
+          p=Number(raw);
+        }
+        const actual=r.actual_payload?.[actualKey];
+        if(actual==null||!Number.isFinite(p)||!Number.isFinite(Number(actual)))return null;
+        return {p,a:Number(actual)};
+      }).filter(Boolean);
       return values.length?average(values.map(x=>Math.abs(x.p-x.a))).toFixed(2):'—';
     }
     async function loadCanchaComparison(){
