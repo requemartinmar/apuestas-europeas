@@ -1,0 +1,1 @@
+grant usage, select on sequence public.partido_alineaciones_id_seq to service_role;

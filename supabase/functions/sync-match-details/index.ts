@@ -20,6 +20,8 @@ type MatchRow = {
   estadisticas_confirmada_at: string | null;
   eventos_estado: string;
   eventos_confirmados_at: string | null;
+  alineaciones_estado: string;
+  alineaciones_confirmadas_at: string | null;
   equipo_local?: { nombre?: string } | null;
   equipo_visitante?: { nombre?: string } | null;
 };
@@ -213,7 +215,7 @@ Deno.serve(async (request) => {
 
     const windowStart = new Date(now.getTime() - 8 * 86400000).toISOString();
     const { data: matches, error: matchesError } = await db.from("partidos")
-      .select("id,competid_id,fecha_utc,estadisticas_estado,estadisticas_confirmada_at,eventos_estado,eventos_confirmados_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
+      .select("id,competid_id,fecha_utc,estadisticas_estado,estadisticas_confirmada_at,eventos_estado,eventos_confirmados_at,alineaciones_estado,alineaciones_confirmadas_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
       .eq("estado", "FINISHED").in("competid_id", [...LEAGUES].map(String))
       .gte("fecha_utc", windowStart).lte("fecha_utc", now.toISOString());
     if (matchesError) throw new Error("No se pudieron cargar partidos de Supabase: " + matchesError.message);
@@ -223,7 +225,8 @@ Deno.serve(async (request) => {
       .filter((entry: any) => {
         const match = entry.match as MatchRow;
         return shouldRetry(match.estadisticas_estado, match.estadisticas_confirmada_at, now.getTime()) ||
-          shouldRetry(match.eventos_estado, match.eventos_confirmados_at, now.getTime());
+          shouldRetry(match.eventos_estado, match.eventos_confirmados_at, now.getTime()) ||
+          shouldRetry(match.alineaciones_estado, match.alineaciones_confirmadas_at, now.getTime());
       });
 
     const maxDetails = Math.max(0, remaining - datesToCheck.length);
@@ -328,8 +331,101 @@ Deno.serve(async (request) => {
           eventsSaved += eventRows.length;
         }
 
+        const lineups = Array.isArray(detail.lineups) ? detail.lineups : [];
+        const lineupRows: Record<string, unknown>[] = [];
+        for (const block of lineups) {
+          const teamId = Number.isInteger(block?.team?.id) ? block.team.id : null;
+          const teamName = String(block?.team?.name ?? "");
+          const formation = typeof block?.formation === "string" ? block.formation : null;
+          const coachId = Number.isInteger(block?.coach?.id) ? block.coach.id : null;
+          const coachName = typeof block?.coach?.name === "string" ? block.coach.name : null;
+          const addLineup = (entry: any, starter: boolean) => {
+            const player = entry?.player ?? {};
+            const playerId = Number(player?.id);
+            const playerName = String(player?.name ?? "").trim();
+            if (!Number.isInteger(playerId) || playerId <= 0 || !playerName) return;
+            lineupRows.push({
+              partido_id: match.id, proveedor: "API-Football", fixture_id: fixtureId,
+              equipo_id: teamId, equipo: teamName, jugador_id: playerId, jugador: playerName,
+              dorsal: numberValue(player?.number), posicion: player?.pos ?? null,
+              posicion_campo: player?.grid ?? null, titular: starter, formacion: formation,
+              entrenador_id: coachId, entrenador: coachName, raw_payload: entry,
+              capturado_at: new Date().toISOString(),
+            });
+          };
+          for (const entry of (Array.isArray(block?.startXI) ? block.startXI : [])) addLineup(entry, true);
+          for (const entry of (Array.isArray(block?.substitutes) ? block.substitutes : [])) addLineup(entry, false);
+        }
+        if (lineupRows.length) {
+          const { error } = await db.from("partido_alineaciones").upsert(lineupRows, {
+            onConflict: "partido_id,proveedor,jugador_id",
+          });
+          if (error) throw new Error("Guardado de alineaciones: " + error.message);
+        }
+
+        const playerBlocks = Array.isArray(detail.players) ? detail.players : [];
+        const playerRows: Record<string, unknown>[] = [];
+        for (const teamBlock of playerBlocks) {
+          const teamId = Number.isInteger(teamBlock?.team?.id) ? teamBlock.team.id : null;
+          const teamName = String(teamBlock?.team?.name ?? "");
+          for (const playerBlock of (Array.isArray(teamBlock?.players) ? teamBlock.players : [])) {
+            const player = playerBlock?.player ?? {};
+            const playerId = Number(player?.id);
+            const playerName = String(player?.name ?? "").trim();
+            const stat = Array.isArray(playerBlock?.statistics) ? playerBlock.statistics[0] : null;
+            if (!Number.isInteger(playerId) || playerId <= 0 || !playerName || !stat) continue;
+            const games = stat.games ?? {}, shots = stat.shots ?? {}, goals = stat.goals ?? {};
+            const passes = stat.passes ?? {}, tackles = stat.tackles ?? {}, duels = stat.duels ?? {};
+            const dribbles = stat.dribbles ?? {}, fouls = stat.fouls ?? {}, cards = stat.cards ?? {};
+            const penalty = stat.penalty ?? {};
+            const shotsTotal = numberValue(shots.total), shotsOn = numberValue(shots.on);
+            const xg = numberValue(goals.expected ?? stat.expected_goals);
+            playerRows.push({
+              provider: "api-football", fixture_id: fixtureId, league_id: Number(detail.league?.id),
+              season: Number(detail.league?.season), match_date: detail.fixture?.date,
+              home_team: String(detail.teams?.home?.name ?? ""),
+              away_team: String(detail.teams?.away?.name ?? ""),
+              team_id: teamId, team_name: teamName, player_id: playerId, player_name: playerName,
+              minutes_played: numberValue(games.minutes),
+              is_substitute: typeof games.substitute === "boolean" ? games.substitute : null,
+              position: typeof games.position === "string" ? games.position : null,
+              shots_total: shotsTotal, shots_on_target: shotsOn,
+              goals: numberValue(goals.total), assists: numberValue(goals.assists),
+              saves: numberValue(goals.saves), rating: numberValue(games.rating),
+              captain: typeof games.captain === "boolean" ? games.captain : null,
+              offsides: numberValue(stat.offsides),
+              passes_total: numberValue(passes.total), passes_key: numberValue(passes.key),
+              pass_accuracy: numberValue(passes.accuracy),
+              tackles_total: numberValue(tackles.total), tackles_blocks: numberValue(tackles.blocks),
+              interceptions: numberValue(tackles.interceptions),
+              duels_total: numberValue(duels.total), duels_won: numberValue(duels.won),
+              dribbles_attempts: numberValue(dribbles.attempts), dribbles_success: numberValue(dribbles.success),
+              dribbles_past: numberValue(dribbles.past),
+              fouls_drawn: numberValue(fouls.drawn), fouls_committed: numberValue(fouls.committed),
+              yellow_cards: numberValue(cards.yellow), red_cards: numberValue(cards.red),
+              penalty_won: numberValue(penalty.won), penalty_committed: numberValue(penalty.commited ?? penalty.committed),
+              penalty_scored: numberValue(penalty.scored), penalty_missed: numberValue(penalty.missed),
+              penalty_saved: numberValue(penalty.saved), xg,
+              npxg: numberValue(goals.npxg ?? stat.npxg),
+              data_quality: shotsTotal !== null && shotsOn !== null ? "verified" : "partial",
+              source_status: String(detail.fixture?.status?.short ?? ""),
+              raw_payload: playerBlock, captured_at: new Date().toISOString(),
+            });
+          }
+        }
+        if (playerRows.length) {
+          const { error } = await db.from("player_match_stats").upsert(playerRows, {
+            onConflict: "provider,fixture_id,player_id",
+          });
+          if (error) throw new Error("Guardado de estadísticas de jugadores: " + error.message);
+        }
+
+        const hasLineups = lineupRows.length > 0;
+        const hasPlayers = playerRows.length > 0;
         const confirmedAt = new Date().toISOString();
         const { error: matchUpdateError } = await db.from("partidos").update({
+          alineaciones_estado: hasLineups || hasPlayers ? "AVAILABLE" : "EMPTY_RESPONSE",
+          alineaciones_confirmadas_at: confirmedAt,
           estadisticas_estado: hasStats ? "AVAILABLE" : "EMPTY_RESPONSE",
           estadisticas_primera_captura_at: match.estadisticas_confirmada_at ?? confirmedAt,
           estadisticas_confirmada_at: confirmedAt,
@@ -341,7 +437,7 @@ Deno.serve(async (request) => {
         outcomes.push({
           fixture_id: fixtureId, match_id: match.id, league_id: fixture.league.id,
           statistics: hasStats ? "saved_or_existing" : "not_covered_or_empty",
-          events: events.length, status: "processed",
+          events: events.length, lineups: lineupRows.length, players: playerRows.length, status: "processed",
         });
       } catch (error) {
         outcomes.push({ fixture_id: fixtureId, match_id: match.id, status: "error", error: String(error).slice(0, 300) });
