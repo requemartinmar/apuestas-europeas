@@ -654,11 +654,11 @@
         return (data?.markets??[]).flatMap(market=>(market.outcomes??[]).filter(o=>o.active&&Number(o.price)>1).map(o=>{
           const line=market.handicap!=null?' · línea '+String(market.handicap).replace('.',','):'';
           const player=o.playerName?' · '+o.playerName:'';
-          return '<tr><td>'+book.label+'</td><td>'+esc(market.provider||'OddsPapi')+'</td><td>'+esc(market.marketName)+esc(line)+(market.playerProp?' · jugador':'')+'</td><td>'+esc(o.outcomeName)+esc(player)+'</td><td><b>'+oddsPrice(o.price)+'</b></td><td>'+esc(oddsTime(o.changedAt||data.updatedAt||data.capturedAt))+'</td></tr>';
+          return '<tr><td>'+book.label+'</td><td>'+esc(market.provider||'OddsPapi / The Odds API')+'</td><td>'+esc(market.marketName)+esc(line)+(market.playerProp?' · jugador':'')+'</td><td>'+esc(o.outcomeName)+esc(player)+'</td><td><b>'+oddsPrice(o.price)+'</b></td><td>'+esc(oddsTime(o.changedAt||data.updatedAt||data.capturedAt))+'</td></tr>';
         }));
       });
-      if(!rows.length)return '<p class="pr-sample">La fuente no ha devuelto mercados activos adicionales para este encuentro.</p>';
-      return '<details class="pr-all-markets"><summary>Ver todos los mercados y cuotas disponibles ('+rows.length+')</summary><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th><th>Fuente</th><th>Mercado</th><th>Selección / jugador</th><th>Cuota</th><th>Actualización</th></tr></thead><tbody>'+rows.join('')+'</tbody></table></div></details>';
+      if(!rows.length)return '<p class="pr-sample">No hay mercados adicionales verificados para este encuentro. Solo se muestran los precios que las fuentes han devuelto realmente.</p>';
+      return '<div class="pr-all-markets"><h4>Todos los mercados disponibles · '+rows.length+' cuotas verificadas</h4><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th><th>Fuente</th><th>Mercado</th><th>Selección / jugador</th><th>Cuota</th><th>Actualización</th></tr></thead><tbody>'+rows.join('')+'</tbody></table></div></div>';
     }
     function euro(value){return Number(value).toFixed(2).replace('.',',')+' €';}
         function renderInlineMatchOdds(matchId){
@@ -726,7 +726,7 @@
           const hasQuote=quoteKeys.some(key=>get(data,key)!=null);const update=data.updatedAt?'Actualizada '+oddsTime(data.updatedAt):hasQuote?'Consulta '+oddsTime(data.capturedAt||data.captured_at):'Sin datos de esta casa';
           return '<tr><td class="odds-book">'+book.label+'</td>'+cells+'<td>'+esc(update)+'</td></tr>';
         }).join('');
-        return '<div class="odds-match-title">'+esc(match.home)+' – '+esc(match.away)+' <span class="pr-muted">· '+esc(dateLabel(match.kickoff))+'</span></div><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th><th>1</th><th>X</th><th>2</th><th>+2,5</th><th>−2,5</th><th>Ambos sí</th><th>Ambos no</th><th>Actualización</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+        return '<div class="odds-match-title">'+esc(match.home)+' – '+esc(match.away)+' <span class="pr-muted">· '+esc(dateLabel(match.kickoff))+'</span></div><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th><th>1</th><th>X</th><th>2</th><th>+2,5</th><th>−2,5</th><th>Ambos sí</th><th>Ambos no</th><th>Actualización</th></tr></thead><tbody>'+body+'</tbody></table></div>'+renderFullMarketRows(match);
       }).join('');
       const unmatched=rows.filter(x=>!x.matched);
       if(unmatched.length)root.innerHTML+='<div class="odds-state">'+unmatched.length+' partido(s) sin correspondencia exacta en la fuente; se han omitido para evitar asociar cuotas incorrectas.</div>';
