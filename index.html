@@ -654,7 +654,7 @@
       }).join('');
       const headers=markets.map(([label])=>'<th>'+esc(label)+'</th>').join('');
       const stamp=match.capturedAt||data.capturedAt;
-      return '<div class="pr-inline-odds"><h4>◉ CUOTAS VERIFICADAS · BETFAIR EXCHANGE / BET365</h4><p class="pr-sample">Consulta OddsPapi · '+esc(oddsTime(stamp))+' · La tabla resumida muestra mercados principales.</p><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th>'+headers+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+renderFullMarketRows(match)+'</div>';
+      return '<div class="pr-inline-odds"><h4>◉ CUOTAS VERIFICADAS · BETFAIR EXCHANGE / BET365</h4><p class="pr-sample">Consulta OddsPapi + The Odds API · '+esc(oddsTime(stamp))+' · La tabla resumida muestra mercados principales.</p><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th>'+headers+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+renderFullMarketRows(match)+'</div>';
     }
     let bookmakerOddsMatches=[];
     let bookmakerOddsCache=null;
@@ -701,7 +701,7 @@
       const unmatched=rows.filter(x=>!x.matched);
       if(unmatched.length)root.innerHTML+='<div class="odds-state">'+unmatched.length+' partido(s) sin correspondencia exacta en la fuente; se han omitido para evitar asociar cuotas incorrectas.</div>';
       const diag=data?.diagnostics;
-      source.textContent='Fuentes: OddsPapi'+(data.additionalSource?.name?' + '+data.additionalSource.name:'')+' · Consulta CANCHA: '+oddsTime(data.capturedAt)+' · Caché OddsPapi 24 h; The Odds API 12 h. Los valores resaltados son la mejor cuota disponible.';
+      const credits=(data.additionalSource?.diagnostics?.quota??[]).map(x=>x.remaining).filter(x=>x!=null);const quotaLabel=credits.length?' · Créditos restantes The Odds API: '+credits.join(' / '):'';source.textContent='Fuentes: OddsPapi'+(data.additionalSource?.name?' + '+data.additionalSource.name:'')+' · Consulta CANCHA: '+oddsTime(data.capturedAt)+' · Caché OddsPapi 24 h; The Odds API 12 h'+quotaLabel+'. Los valores resaltados son la mejor cuota disponible.';
       if(diag&&Number(diag.verifiedQuotes||0)===0){
         const limited=Object.keys(diag.bookmakerErrors||{}).length?' Algunas casas han limitado temporalmente las consultas.':'';
         root.innerHTML+='<div class="odds-state">La fuente no ha devuelto cuotas verificables para estos partidos. Competiciones consultadas: '+Number(diag.tournamentsQueried||0)+' · Eventos recibidos: '+Number(diag.providerFixtures||0)+' · Partidos emparejados: '+Number(diag.matchedMatches||0)+'.'+limited+' No se mostrarán precios estimados.</div>';
