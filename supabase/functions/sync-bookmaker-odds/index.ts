@@ -3,8 +3,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 const API_BASE = "https://api.oddspapi.io/v4";
 const PROVIDER = "OddsPapi";
 const BOOKS = [
-  { api: "betfair-ex", key: "Betfair Exchange", display: "Betfair Exchange" },
-  { api: "bet365", key: "Bet365", display: "Bet365" },
+  { api: "betfair-es", key: "Betfair", display: "Betfair" },
+  { api: "bet365-es", key: "Bet365", display: "Bet365" },
 ];
 const TARGET_TOURNAMENTS = new Map([
   ["laliga", "spain"],
@@ -306,7 +306,7 @@ Deno.serve(async (req: Request) => {
       const bookErrors: Record<string, string> = {};
       const ids = cachedTournaments.ids;
       for (const book of BOOKS) {
-        const batchSize = book.api === "betfair-ex" ? 1 : 3;
+        const batchSize = book.api.startsWith("betfair") ? 1 : 3;
         for (let i = 0; i < ids.length; i += batchSize) {
           const tournamentIds = ids.slice(i, i + batchSize).join(",");
           let oddsPayload: any;
