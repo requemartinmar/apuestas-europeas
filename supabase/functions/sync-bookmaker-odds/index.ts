@@ -154,18 +154,20 @@ function quoteRows(matchId: number, books: Record<string, NormalizedBook>) {
   for (const book of BOOKS) {
     const data = books[book.key];
     if (!data) continue;
-    const stamp = data.updatedAt ?? data.capturedAt;
-    const groups: Array<[string, Record<string, QuoteSide>]> = [
-      ["1X2", data.ml], ["Totales 2.5", data.totals25], ["Ambos marcan", data.btts],
-    ];
-    for (const [market, selections] of groups) {
-      for (const [selection, price] of Object.entries(selections)) {
-        if (price != null && Number.isFinite(price) && price > 1) {
-          rows.push({
-            partido_id: matchId, casa_apuestas: book.display, mercado: market,
-            seleccion: selection, cuota: price, proveedor: PROVIDER, hora_captura: stamp,
-          });
-        }
+    for (const market of data.markets ?? []) {
+      const line = market.handicap != null ? " (" + market.handicap + ")" : "";
+      const period = market.period && market.period !== "unknown" ? " · " + market.period : "";
+      for (const outcome of market.outcomes ?? []) {
+        if (outcome.price == null || !Number.isFinite(outcome.price) || outcome.price <= 1 || !outcome.active) continue;
+        rows.push({
+          partido_id: matchId,
+          casa_apuestas: book.display,
+          mercado: market.marketName + line + period,
+          seleccion: outcome.outcomeName + (outcome.playerName ? " · " + outcome.playerName : ""),
+          cuota: outcome.price,
+          proveedor: PROVIDER,
+          hora_captura: outcome.changedAt ?? data.updatedAt ?? data.capturedAt,
+        });
       }
     }
   }
