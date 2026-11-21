@@ -235,6 +235,7 @@ Deno.serve(async (request) => {
     }
     const candidates = rows
       .filter((match) => Number.isInteger(Number(match.api_fixture_id)) && Number(match.api_fixture_id) > 0)
+      .filter((match) => !requestedFixtureIds.length || requestedFixtureIds.includes(Number(match.api_fixture_id)))
       .filter((match) =>
         shouldRetry(match.estadisticas_estado, match.estadisticas_confirmada_at, now.getTime()) ||
         shouldRetry(match.eventos_estado, match.eventos_confirmados_at, now.getTime()) ||
