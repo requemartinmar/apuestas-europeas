@@ -593,7 +593,7 @@
         const body=books.map(book=>{
           const data=bookmakerData[book.key]??{};
           const cells=quoteKeys.map(key=>{const value=get(data,key),n=Number(value),isBest=Number.isFinite(n)&&n>1&&n===best[key];return '<td class="'+(isBest?'odds-best':'')+'">'+oddsPrice(value)+'</td>';}).join('');
-          const update=data.updatedAt?'Actualizada '+oddsTime(data.updatedAt):'Captura '+oddsTime(data.capturedAt||data.captured_at||data.updatedAt);
+          const hasQuote=quoteKeys.some(key=>get(data,key)!=null);const update=data.updatedAt?'Actualizada '+oddsTime(data.updatedAt):hasQuote?'Consulta '+oddsTime(data.capturedAt||data.captured_at):'Sin datos de esta casa';
           return '<tr><td class="odds-book">'+book.label+'</td>'+cells+'<td>'+esc(update)+'</td></tr>';
         }).join('');
         return '<div class="odds-match-title">'+esc(match.home)+' – '+esc(match.away)+' <span class="pr-muted">· '+esc(dateLabel(match.kickoff))+'</span></div><div class="odds-table-wrap"><table class="odds-table"><thead><tr><th>Casa</th><th>1</th><th>X</th><th>2</th><th>+2,5</th><th>−2,5</th><th>Ambos sí</th><th>Ambos no</th><th>Actualización</th></tr></thead><tbody>'+body+'</tbody></table></div>';
