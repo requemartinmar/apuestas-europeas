@@ -111,7 +111,7 @@ function parsePlayerLine(line: string): { number: number; name: string; minute: 
 }
 
 function parseTeamBlocks(lines: string[]): Array<{
-  starters: Array<{ number: number; name: string; position: string }>;
+  starters: Array<{ number: number; name: string; position: string; minute: number | null }>;
   substitutes: Array<{ number: number; name: string; minute: number | null }>;
   coach: string | null;
   formation: string | null;
@@ -125,14 +125,14 @@ function parseTeamBlocks(lines: string[]): Array<{
     const starterLines = block.slice(1, benchAt);
     const benchLines = block.slice(benchAt + 1);
     let position = "Portero";
-    const starters: Array<{ number: number; name: string; position: string }> = [];
+    const starters: Array<{ number: number; name: string; position: string; minute: number | null }> = [];
     for (const line of starterLines) {
       if (/^(portero|defensa|centrocampista|delantero)$/i.test(line)) {
         position = line;
         continue;
       }
       const player = parsePlayerLine(line);
-      if (player) starters.push({ number: player.number, name: player.name, position });
+      if (player) starters.push({ number: player.number, name: player.name, position, minute: player.minute });
     }
     const coachLine = benchLines.find((line) => /^ent\s+/i.test(line)) ?? "";
     const coachMatch = coachLine.match(/^ent\s+(.+?)\s+(\d-\d(?:-\d){1,2})$/i);
