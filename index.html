@@ -580,7 +580,9 @@
       const matched=rows.filter(x=>x.matched);
       if(!matched.length){
         const msg=rows.length?'No se ha podido emparejar con seguridad ningún partido con el evento del proveedor.':'No hay partidos futuros para consultar en esta selección.';
-        root.innerHTML='<div class="odds-state">'+msg+' No se mostrarán cuotas de otro encuentro.</div>';
+        const diag=data?.diagnostics;
+        const detail=diag?(' OddsPapi consultó '+Number(diag.tournamentsQueried||0)+' competiciones y devolvió '+Number(diag.providerFixtures||0)+' eventos con cuotas; '+Number(diag.matchedMatches||0)+' coincidencias seguras.'): '';
+        root.innerHTML='<div class="odds-state">'+msg+' No se mostrarán cuotas de otro encuentro.'+esc(detail)+'</div>';
         source.textContent='Consulta: '+oddsTime(data?.capturedAt)+' · Fuente: OddsPapi.';
         return;
       }
@@ -600,17 +602,22 @@
       }).join('');
       const unmatched=rows.filter(x=>!x.matched);
       if(unmatched.length)root.innerHTML+='<div class="odds-state">'+unmatched.length+' partido(s) sin correspondencia exacta en la fuente; se han omitido para evitar asociar cuotas incorrectas.</div>';
+      const diag=data?.diagnostics;
       source.textContent='Fuente: '+(data.source||'OddsPapi')+' · Consulta CANCHA: '+oddsTime(data.capturedAt)+' · Caché hasta 24 h para respetar las 250 solicitudes mensuales del plan gratuito. Los valores resaltados son la mejor cuota disponible.';
+      if(diag&&Number(diag.verifiedQuotes||0)===0){
+        const limited=Object.keys(diag.bookmakerErrors||{}).length?' Algunas casas han limitado temporalmente las consultas.':'';
+        root.innerHTML+='<div class="odds-state">La fuente no ha devuelto cuotas verificables para estos partidos. Competiciones consultadas: '+Number(diag.tournamentsQueried||0)+' · Eventos recibidos: '+Number(diag.providerFixtures||0)+' · Partidos emparejados: '+Number(diag.matchedMatches||0)+'.'+limited+' No se mostrarán precios estimados.</div>';
+      }
     }
     async function loadBookmakerOdds(matches,force=false){
       const root=$('#bookmaker-odds');
       if(!root)return;
       const valid=(matches??[]).filter(m=>!m.local_record&&m.id!=null&&m.fecha_utc&&new Date(m.fecha_utc).getTime()>Date.now()).slice(0,30);
       if(!valid.length){renderBookmakerOdds({status:'ok',matches:[],capturedAt:new Date().toISOString()});return;}
-      if(bookmakerOddsCache&&Date.now()-bookmakerOddsCache.at<86400000){renderBookmakerOdds(bookmakerOddsCache.data);return;}
+      if(!force&&bookmakerOddsCache&&Date.now()-bookmakerOddsCache.at<86400000){renderBookmakerOdds(bookmakerOddsCache.data);return;}
       root.innerHTML='<p class="muted-note">Consultando la fuente de cuotas reales y verificando cada partido…</p>';
       try{
-        const {data,error}=await db.functions.invoke('sync-bookmaker-odds',{body:{matches:valid.map(m=>({id:Number(m.id),home:m.equipo_local?.nombre??m.home_name??'',away:m.equipo_visitante?.nombre??m.away_name??'',kickoff:m.fecha_utc}))}});
+        const {data,error}=await db.functions.invoke('sync-bookmaker-odds',{body:{force:!!force,matches:valid.map(m=>({id:Number(m.id),home:m.equipo_local?.nombre??m.home_name??'',away:m.equipo_visitante?.nombre??m.away_name??'',kickoff:m.fecha_utc}))}});
         if(error)throw error;
         bookmakerOddsCache={at:Date.now(),data};
         renderBookmakerOdds(data);
