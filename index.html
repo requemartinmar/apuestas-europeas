@@ -627,7 +627,7 @@
         const comboCandidates=analysed.filter(x=>x.model&&!x.m.local_record&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>Date.now()).map(x=>{
           const picks=automaticBetPicks(x.model);
           return picks.length?{match:x.m,home:x.m.equipo_local?.nombre??x.m.home_name??'Local',away:x.m.equipo_visitante?.nombre??x.m.away_name??'Visitante',pick:picks[0]}:null;
-        }).filter(Boolean).sort((a,b)=>b.pick.probability-a.pick.probability).slice(0,3);
+        }).filter(Boolean).sort((a,b)=>b.pick.probability-a.pick.probability).slice(0,10);
         if(comboCandidates.length>=2){
           const comboHtml=(count)=>{const chosen=comboCandidates.slice(0,count),probability=chosen.reduce((acc,x)=>acc*x.pick.probability,1);return '<div class="pr-combo"><h4>COMBINADA AUTOMÁTICA · '+count+' PARTIDOS</h4>'+chosen.map(x=>'<p><b>'+esc(x.home)+' – '+esc(x.away)+'</b><br>'+esc(x.pick.market)+' · '+Math.round(x.pick.probability*100)+'%</p>').join('')+'<strong>Probabilidad conjunta orientativa: '+Math.round(probability*100)+'%</strong></div>';};
           root.innerHTML+='<div class="pr-auto-combos"><h3>✦ CANCHA · COMBINADAS AUTOMÁTICAS</h3><p class="pr-sample">CANCHA elige una selección por partido, sin que tengas que marcar nada. Solo combina encuentros distintos.</p>'+comboHtml(2)+(comboCandidates.length>=3?comboHtml(3):'')+'<p class="pr-sample">Probabilidad conjunta aproximada multiplicando las estimaciones individuales; presupone independencia entre partidos. No es una probabilidad calibrada ni garantiza resultados. No hay cuotas verificadas, por lo que no se calcula rentabilidad.</p></div>';
