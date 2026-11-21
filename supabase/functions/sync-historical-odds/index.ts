@@ -30,6 +30,28 @@ function allowedKey(req: Request) {
   } catch { /* optional configuration */ }
   return !!supplied && (supplied === legacy || publishable.includes(supplied));
 }
+function historyPreview(book: any): any[] {
+  const rows: any[] = [];
+  for (const [marketId, market] of Object.entries(book?.markets ?? {}) as any[]) {
+    for (const [outcomeId, outcome] of Object.entries(market?.outcomes ?? {}) as any[]) {
+      for (const [playerId, value] of Object.entries(outcome?.players ?? {}) as any[]) {
+        const entries = Array.isArray(value) ? value : value && typeof value === "object" ? [value] : [];
+        for (const entry of entries) {
+          const price = Number(entry?.price);
+          if (!Number.isFinite(price) || price <= 1 || !entry?.createdAt) continue;
+          rows.push({
+            marketId: String(marketId), outcomeId: String(outcomeId), playerId: String(playerId),
+            createdAt: String(entry.createdAt), price,
+            limit: Number.isFinite(Number(entry.limit)) ? Number(entry.limit) : null,
+            active: entry.active === true,
+            exchangeMeta: entry.exchangeMeta ?? null,
+          });
+        }
+      }
+    }
+  }
+  return rows.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 20);
+}
 function countEntries(book: any): number {
   let count = 0;
   for (const market of Object.values(book?.markets ?? {}) as any[]) {
@@ -185,7 +207,7 @@ Deno.serve(async (req: Request) => {
           }], serviceKey);
           saved = true;
         }
-        summaries.push({ bookmaker: BOOK_NAMES[slug], slug, entries, saved, status: entries ? "ok" : "empty_history" });
+        summaries.push({ bookmaker: BOOK_NAMES[slug], slug, entries, saved, status: entries ? "ok" : "empty_history", preview: historyPreview(history) });
       }
       results.push({
         partidoId: Number(mapping.partido_id), fixtureId,
