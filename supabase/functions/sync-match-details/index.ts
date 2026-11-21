@@ -169,15 +169,26 @@ Deno.serve(async (request) => {
       return reply({ ok: true, skipped: true, used_today: usedToday, daily_limit: DAILY_API_LIMIT });
     }
 
-    const from = madridDate(new Date(now.getTime() - 7 * 86400000));
-    const to = madridDate(now);
-    const fixturesUrl = new URLSearchParams({ from, to, timezone: TZ });
-    apiRequests++;
-    const listData = await apiGet("/fixtures?" + fixturesUrl.toString());
-    const fixtures = (Array.isArray(listData.response) ? listData.response : [])
-      .filter((fixture: any) => LEAGUES.has(Number(fixture?.league?.id)) &&
-        FINAL_STATUSES.has(String(fixture?.fixture?.status?.short ?? "")))
+    const datesToCheck = [1, 2, 3].map((daysAgo) =>
+      madridDate(new Date(now.getTime() - daysAgo * 86400000))
+    ).slice(0, Math.min(3, Math.max(0, remaining - 1)));
+    const fixtureMap = new Map<number, any>();
+    for (const date of datesToCheck) {
+      apiRequests++;
+      const dateData = await apiGet("/fixtures?date=" + date + "&timezone=" + TZ);
+      const dateFixtures = Array.isArray(dateData.response) ? dateData.response : [];
+      for (const fixture of dateFixtures) {
+        const fixtureId = Number(fixture?.fixture?.id);
+        if (fixtureId && LEAGUES.has(Number(fixture?.league?.id)) &&
+          FINAL_STATUSES.has(String(fixture?.fixture?.status?.short ?? ""))) {
+          fixtureMap.set(fixtureId, fixture);
+        }
+      }
+    }
+    const fixtures = [...fixtureMap.values()]
       .sort((a: any, b: any) => new Date(a.fixture.date).getTime() - new Date(b.fixture.date).getTime());
+    const from = datesToCheck.at(-1) ?? madridDate(now);
+    const to = datesToCheck[0] ?? madridDate(now);
     fixturesSeen = fixtures.length;
 
     const windowStart = new Date(now.getTime() - 8 * 86400000).toISOString();
@@ -195,19 +206,41 @@ Deno.serve(async (request) => {
           shouldRetry(match.eventos_estado, match.eventos_confirmados_at, now.getTime());
       });
 
-    const maxDetails = Math.max(0, remaining - 1);
-    for (const entry of candidates.slice(0, maxDetails)) {
-      const fixture = entry.fixture;
-      const match = entry.match as MatchRow;
-      const fixtureId = Number(fixture.fixture.id);
+    const maxDetailBatches = Math.max(0, remaining - datesToCheck.length);
+    const detailBatches: any[][] = [];
+    for (let index = 0; index < candidates.length; index += 20) {
+      detailBatches.push(candidates.slice(index, index + 20));
+    }
+    for (const batch of detailBatches.slice(0, maxDetailBatches)) {
+      let detailById = new Map<number, any>();
       try {
         apiRequests++;
-        const detailData = await apiGet("/fixtures?id=" + fixtureId);
-        const detail = Array.isArray(detailData.response) ? detailData.response[0] : null;
-        if (!detail) {
-          outcomes.push({ fixture_id: fixtureId, match_id: match.id, status: "empty_fixture_detail" });
-          continue;
+        const ids = batch.map((entry: any) => Number(entry.fixture.fixture.id)).join("-");
+        const detailData = await apiGet("/fixtures?ids=" + ids);
+        const details = Array.isArray(detailData.response) ? detailData.response : [];
+        detailById = new Map(details.map((detail: any) => [Number(detail?.fixture?.id), detail]));
+      } catch (error) {
+        for (const entry of batch) {
+          outcomes.push({
+            fixture_id: Number(entry.fixture.fixture.id),
+            match_id: entry.match.id,
+            status: "detail_batch_error",
+            error: String(error).slice(0, 250),
+          });
         }
+        continue;
+      }
+
+      for (const entry of batch) {
+        const fixture = entry.fixture;
+        const match = entry.match as MatchRow;
+        const fixtureId = Number(fixture.fixture.id);
+        try {
+          const detail = detailById.get(fixtureId) ?? null;
+          if (!detail) {
+            outcomes.push({ fixture_id: fixtureId, match_id: match.id, status: "empty_fixture_detail" });
+            continue;
+          }
 
         const teamStats = Array.isArray(detail.statistics) ? detail.statistics : [];
         const homeBlock = teamStats.find((block: any) => Number(block?.team?.id) === Number(detail.teams?.home?.id)) ?? null;
@@ -309,12 +342,15 @@ Deno.serve(async (request) => {
           statistics: hasStats ? "saved_or_existing" : "not_covered_or_empty",
           events: events.length, status: "processed",
         });
-      } catch (error) {
-        outcomes.push({ fixture_id: fixtureId, match_id: match.id, status: "error", error: String(error).slice(0, 300) });
+        } catch (error) {
+          outcomes.push({ fixture_id: fixtureId, match_id: match.id, status: "error", error: String(error).slice(0, 300) });
+        }
       }
     }
 
-    const partial = outcomes.some((item) => item.status === "error");
+    const partial = outcomes.some((item) =>
+      item.status === "error" || item.status === "detail_batch_error"
+    );
     const { error: finishError } = await db.from("match_details_sync_runs").update({
       finished_at: new Date().toISOString(),
       status: partial ? "partial" : "success",
