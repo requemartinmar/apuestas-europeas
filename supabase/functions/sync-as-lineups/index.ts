@@ -406,10 +406,12 @@ Deno.serve(async (request) => {
               captured_at: new Date().toISOString(),
             }];
           });
-          const { error: statsError } = await db.from("player_match_stats").upsert(statRows, {
-            onConflict: "provider,fixture_id,player_id",
-          });
-          if (statsError) throw new Error("No se pudieron guardar goles, asistencias y tarjetas por jugador: " + statsError.message);
+          if (statRows.length) {
+            const { error: statsError } = await db.from("player_match_stats").upsert(statRows, {
+              onConflict: "provider,fixture_id,player_id",
+            });
+            if (statsError) throw new Error("No se pudieron guardar goles, asistencias y tarjetas por jugador: " + statsError.message);
+          }
         }
         const { error: updateError } = await db.from("partidos").update({
           alineaciones_estado: "AVAILABLE",
