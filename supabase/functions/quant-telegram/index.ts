@@ -1959,7 +1959,8 @@ async function sendUpcomingFixtures(chatId: number | string): Promise<void> {
   for (let offset = 0; ; offset += 1000) {
     const { data, error } = await supabase.from("partidos")
       .select("fecha_utc,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)")
-      .gt("fecha_utc", now.toISOString()).lte("fecha_utc", window.end)
+      .gte("fecha_utc", window.start).lt("fecha_utc", window.end)
+      .in("estado", ["SCHEDULED", "POSTPONED"])
       .order("fecha_utc", { ascending: true }).range(offset, offset + 999);
     if (error) throw new Error("Calendario: " + error.message);
     rows.push(...(data ?? []));
