@@ -605,7 +605,27 @@ Deno.serve(async (request) => {
             });
           }
         }
-        if (historicalRows.length) await upsertHistoricalScoreRows(db, historicalRows);
+        if (historicalRows.length) {
+          const aliasTeamIds = [...new Set(historicalRows.flatMap((row) => [String(row.home_team_id), String(row.away_team_id)]))];
+          const { data: aliases, error: aliasError } = await db.from("equipo_alias")
+            .select("equipo_id,hist_league,hist_team").in("equipo_id", aliasTeamIds);
+          if (aliasError) throw new Error("No se pudieron resolver los nombres históricos de los equipos: " + aliasError.message);
+          const aliasById = new Map<string, any>((aliases ?? []).map((row: any) => [String(row.equipo_id), row]));
+          const historyNames: Record<string, string> = { SP1: "LaLiga", E0: "Premier League", D1: "Bundesliga", I1: "Serie A" };
+          const alignedRows = historicalRows.map((record) => {
+            const homeAlias = aliasById.get(String(record.home_team_id));
+            const awayAlias = aliasById.get(String(record.away_team_id));
+            const aligned = homeAlias && awayAlias && homeAlias.hist_league && homeAlias.hist_league === awayAlias.hist_league;
+            const leagueCode = aligned ? String(homeAlias.hist_league) : String(record.league_code);
+            const homeName = aligned ? String(homeAlias.hist_team) : String(record.home_team);
+            const awayName = aligned ? String(awayAlias.hist_team) : String(record.away_team);
+            const { home_team_id: _homeId, away_team_id: _awayId, ...clean } = record;
+            return { ...clean, league_code: leagueCode, league_name: historyNames[leagueCode] ?? clean.league_name,
+              home_team: homeName, away_team: awayName,
+              id: historicalMatchId(leagueCode, String(record.season), String(record.match_date), homeName, awayName) };
+          });
+          await upsertHistoricalScoreRows(db, alignedRows);
+        }
         outcomes.push({ competicion: competition.code, estado: "SUCCESS", partidos_vistos: matchesSeen, partidos_guardados: matchesSaved, resultados_historicos: historicalRows.length });
       } catch (error) {
         outcomes.push({ competicion: competition.code, estado: "FAILED", error: String(error).slice(0, 350) });
