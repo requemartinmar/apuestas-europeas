@@ -325,9 +325,9 @@ function mean(v:any[]):number|null{const a=v.filter(x=>x!=null&&Number.isFinite(
 function pois(l:number):number[]{const p=[Math.exp(-l)];for(let i=1;i<=10;i++)p[i]=p[i-1]*l/i;return p;}
 function poissonOver(lambda:number,line:number):number{if(!Number.isFinite(lambda)||lambda<=0)return 0;const limit=Math.floor(line);let term=Math.exp(-lambda),cum=term;for(let k=1;k<=limit;k++){term*=lambda/k;cum+=term;}return Math.max(0,Math.min(1,1-cum));}
 async function cancha(chatId:number|string,mode:"menu"|"top3"|"search"|"daily"|"bettingtop",term=""){
- const now=new Date(),today=madridDate(now),window=getCanchaWindow(now);
- const queryStart=mode==="daily"?madridMidnightUtc(today).toISOString():window.start;
- const queryEnd=mode==="daily"?madridMidnightUtc(addMadridCalendarDays(today,1)).toISOString():window.end;
+ const now=new Date(),window=getCanchaWindow(now);
+ const queryStart=window.start;
+ const queryEnd=window.end;
  const PAGE_SIZE=1000;
  const ms:any[]=[];let offset=0;let me:any=null;
  while(true){
@@ -338,7 +338,7 @@ async function cancha(chatId:number|string,mode:"menu"|"top3"|"search"|"daily"|"
   offset+=PAGE_SIZE;
  }
  if(me)throw new Error("Cancha partidos: "+me.message);
-if(!ms.length){await telegram("sendMessage",{chat_id:chatId,text:mode==="daily"?"📅 <b>RESUMEN DIARIO CANCHA · "+today+"</b>\nHoy no hay partidos registrados en el calendario de Cancha.":"No hay partidos pendientes registrados en Cancha para mañana.\nPuede deberse a un parón o a que el calendario todavía no se ha actualizado.\nNo se generarán predicciones sin encuentros verificados." ,parse_mode:"HTML"});return;}
+if(!ms.length){await telegram("sendMessage",{chat_id:chatId,text:mode==="daily"?"📅 <b>RESUMEN DIARIO CANCHA · MAÑANA</b>\nMañana no hay partidos pendientes registrados en el calendario de Cancha.":"No hay partidos pendientes registrados en Cancha para mañana.\nPuede deberse a un parón o a que el calendario todavía no se ha actualizado.\nNo se generarán predicciones sin encuentros verificados." ,parse_mode:"HTML"});return;}
 
  const ids=[...new Set(ms.flatMap((m:any)=>[String(m.equipo_local_id),String(m.equipo_visitante_id)]))];
  const {data:als,error:ae}=await supabase.from("equipo_alias").select("equipo_id,hist_league,hist_team").in("equipo_id",ids);if(ae)throw new Error("Cancha equivalencias: "+ae.message);
@@ -442,7 +442,7 @@ if(!ms.length){await telegram("sendMessage",{chat_id:chatId,text:mode==="daily"?
  };
  if(mode==="daily"){
   const scope=ms.filter(isFavoriteFixture);
-  if(!scope.length){const label=new Intl.DateTimeFormat("es-ES",{timeZone:TZ,weekday:"long",day:"2-digit",month:"long"}).format(now);await telegram("sendMessage",{chat_id:chatId,text:"📅 <b>RESUMEN DIARIO CANCHA · "+esc(label.toLocaleUpperCase("es-ES"))+"</b>\nHoy no hay partidos de los equipos top de LaLiga y Premier League ni de tus equipos seleccionados de las demás ligas.\n\nNo se incluyen encuentros de otros días.",parse_mode:"HTML"});return;}
+  if(!scope.length){const label=new Intl.DateTimeFormat("es-ES",{timeZone:TZ,weekday:"long",day:"2-digit",month:"long"}).format(new Date(window.start));await telegram("sendMessage",{chat_id:chatId,text:"📅 <b>RESUMEN DIARIO CANCHA · "+esc(label.toLocaleUpperCase("es-ES"))+"</b>\nMañana no hay partidos de los equipos top de LaLiga y Premier League ni de tus equipos seleccionados de las demás ligas.\n\nNo se incluyen encuentros de otros días.",parse_mode:"HTML"});return;}
   const predictions=new Map(out.map((x:any)=>[String(x.m.id),x]));
   const entries=scope.map((m:any)=>{
    const x:any=predictions.get(String(m.id));
@@ -451,7 +451,7 @@ if(!ms.length){await telegram("sendMessage",{chat_id:chatId,text:mode==="daily"?
    const content=x ? "⚽ <b>"+home+" — "+away+"</b>\n🎯 "+x.pick.market+": <b>"+x.pick.prob.toFixed(1)+"%</b> · Marcador: <b>"+x.best.h+" — "+x.best.a+"</b>\n🥅 Goles esperados: "+x.lh.toFixed(2)+" — "+x.la.toFixed(2)+"\n"+countLines.join("\n") : "⚽ <b>"+home+" — "+away+"</b>\n<i>Histórico insuficiente: sin pronóstico.</i>";
    return {competition:m.competicion?.nombre??"Competición",kickoff:m.fecha_utc,content};
   });
-  for(const message of formatCanchaMessages(entries)) await telegram("sendMessage",{chat_id:chatId,text:message.replace("CANCHA · PRÓXIMOS PARTIDOS","RESUMEN DIARIO CANCHA · HOY"),parse_mode:"HTML"});
+  for(const message of formatCanchaMessages(entries)) await telegram("sendMessage",{chat_id:chatId,text:message.replace("CANCHA · PRÓXIMOS PARTIDOS","RESUMEN DIARIO CANCHA · MAÑANA"),parse_mode:"HTML"});
   return;
  }
  if(mode==="bettingtop"){
