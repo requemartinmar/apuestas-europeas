@@ -16,6 +16,8 @@ type MatchRow = {
   id: number;
   api_fixture_id: number | null;
   competid_id: string;
+  equipo_local_id: number;
+  equipo_visitante_id: number;
   temporada: string | null;
   goles_local: number | null;
   goles_visitante: number | null;
@@ -238,7 +240,7 @@ Deno.serve(async (request) => {
 
     const windowStart = new Date(now.getTime() - 30 * 86400000).toISOString();
     const { data: matches, error: matchesError } = await db.from("partidos")
-      .select("id,api_fixture_id,competid_id,temporada,goles_local,goles_visitante,fecha_utc,estadisticas_estado,estadisticas_confirmada_at,eventos_estado,eventos_confirmados_at,alineaciones_estado,alineaciones_confirmados_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
+      .select("id,api_fixture_id,competid_id,equipo_local_id,equipo_visitante_id,temporada,goles_local,goles_visitante,fecha_utc,estadisticas_estado,estadisticas_confirmada_at,eventos_estado,eventos_confirmados_at,alineaciones_estado,alineaciones_confirmados_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
       .eq("estado", "FINISHED").in("competid_id", [...LEAGUES].map(String))
       .gte("fecha_utc", windowStart).lte("fecha_utc", now.toISOString());
     if (matchesError) throw new Error("No se pudieron cargar partidos de Supabase: " + matchesError.message);
@@ -345,14 +347,25 @@ Deno.serve(async (request) => {
         }
 
         const historyLeagues: Record<string, { code: string; name: string }> = {
-          "140": { code: "PD", name: "LaLiga" }, "39": { code: "PL", name: "Premier League" },
-          "78": { code: "BL1", name: "Bundesliga" }, "135": { code: "SA", name: "Serie A" },
+          "140": { code: "SP1", name: "LaLiga" }, "39": { code: "E0", name: "Premier League" },
+          "78": { code: "D1", name: "Bundesliga" }, "135": { code: "I1", name: "Serie A" },
           "2": { code: "CL", name: "UEFA Champions League" }, "3": { code: "EL", name: "UEFA Europa League" },
           "848": { code: "UECL", name: "UEFA Conference League" },
         };
         const historyLeague = historyLeagues[String(match.competid_id)];
-        const homeName = String(match.equipo_local?.nombre ?? detail.teams?.home?.name ?? "");
-        const awayName = String(match.equipo_visitante?.nombre ?? detail.teams?.away?.name ?? "");
+        const { data: teamAliases, error: teamAliasesError } = await db.from("equipo_alias")
+          .select("equipo_id,hist_league,hist_team")
+          .in("equipo_id", [match.equipo_local_id, match.equipo_visitante_id]);
+        if (teamAliasesError) throw new Error("No se pudieron resolver los alias históricos: " + teamAliasesError.message);
+        const aliasById = new Map<number, any>((teamAliases ?? []).map((row: any) => [Number(row.equipo_id), row]));
+        const homeAlias = aliasById.get(Number(match.equipo_local_id));
+        const awayAlias = aliasById.get(Number(match.equipo_visitante_id));
+        const alignedAliases = Boolean(homeAlias && awayAlias && homeAlias.hist_league && homeAlias.hist_league === awayAlias.hist_league);
+        const historyCode = alignedAliases ? String(homeAlias.hist_league) : historyLeague?.code;
+        const homeName = String(alignedAliases ? homeAlias.hist_team : (match.equipo_local?.nombre ?? detail.teams?.home?.name ?? ""));
+        const awayName = String(alignedAliases ? awayAlias.hist_team : (match.equipo_visitante?.nombre ?? detail.teams?.away?.name ?? ""));
+        const historyLeagueName = historyCode === "SP1" ? "LaLiga" : historyCode === "E0" ? "Premier League" :
+          historyCode === "D1" ? "Bundesliga" : historyCode === "I1" ? "Serie A" : historyLeague?.name;
         const kickoff = new Date(match.fecha_utc);
         const historyDate = Number.isFinite(kickoff.getTime()) ? kickoff.toISOString().slice(0, 10) : "";
         const seasonStart = kickoff.getUTCMonth() + 1 >= 7 ? kickoff.getUTCFullYear() : kickoff.getUTCFullYear() - 1;
@@ -361,10 +374,10 @@ Deno.serve(async (request) => {
         const awayScoreRaw = detail.goals?.away ?? match.goles_visitante;
         const homeScore = Number.isInteger(homeScoreRaw) ? Number(homeScoreRaw) : null;
         const awayScore = Number.isInteger(awayScoreRaw) ? Number(awayScoreRaw) : null;
-        if (historyLeague && homeName && awayName && historyDate && homeScore !== null && awayScore !== null && homeScore >= 0 && awayScore >= 0) {
+        if (historyCode && historyLeagueName && homeName && awayName && historyDate && homeScore !== null && awayScore !== null && homeScore >= 0 && awayScore >= 0) {
           await upsertHistoricalDetails(db, {
-            id: historicalMatchId(historyLeague.code, historySeason, historyDate, homeName, awayName),
-            league_code: historyLeague.code, league_name: historyLeague.name, season: historySeason, match_date: historyDate,
+            id: historicalMatchId(historyCode, historySeason, historyDate, homeName, awayName),
+            league_code: historyCode, league_name: historyLeagueName, season: historySeason, match_date: historyDate,
             kickoff_time: Number.isFinite(kickoff.getTime()) ? kickoff.toISOString().slice(11, 16) : null,
             home_team: homeName, away_team: awayName, home_goals: homeScore, away_goals: awayScore,
             home_shots: statValue(homeStats, "Total Shots"), away_shots: statValue(awayStats, "Total Shots"),
