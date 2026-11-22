@@ -510,6 +510,24 @@ async function syncNationsLeague(db: Db, year: number, from: string, to: string)
     if (error) throw error;
     saved += chunk.length;
   }
+  const nationsHistoryRows = fixtures.flatMap((match) => {
+    const hasScore = typeof match.HomeTeamScore === "number" && Number.isFinite(match.HomeTeamScore) &&
+      typeof match.AwayTeamScore === "number" && Number.isFinite(match.AwayTeamScore);
+    if (!hasScore) return [];
+    const kickoff = new Date(match.DateUtc).toISOString();
+    const matchDate = kickoff.slice(0, 10);
+    const homeName = match.HomeTeam.trim(), awayName = match.AwayTeam.trim();
+    return [{
+      id: historicalMatchId("UNL", season, matchDate, homeName, awayName),
+      league_code: "UNL", league_name: "UEFA Nations League", season, match_date: matchDate,
+      kickoff_time: kickoff.slice(11, 16) || null, home_team: homeName, away_team: awayName,
+      home_goals: Number(match.HomeTeamScore), away_goals: Number(match.AwayTeamScore),
+      home_shots: null, away_shots: null, home_shots_on_target: null, away_shots_on_target: null,
+      home_corners: null, away_corners: null, home_yellow: null, away_yellow: null,
+      home_red: null, away_red: null, source: "FixtureDownload",
+    }];
+  });
+  if (nationsHistoryRows.length) await upsertHistoricalScoreRows(db, nationsHistoryRows);
   console.info("nations_fixture_sync_complete", { fixtures: fixtures.length, teams: teamRows.length, saved });
   return { competicion: "UEFA Nations League", estado: "SUCCESS", partidos_vistos: fixtures.length, partidos_guardados: saved, equipos: teamRows.length, fuente_calendario: "FixtureDownload" };
 }
