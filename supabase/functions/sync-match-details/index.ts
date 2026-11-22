@@ -143,7 +143,8 @@ async function upsertHistoricalDetails(db: any, record: Record<string, any>) {
     .eq("home_team", record.home_team).eq("away_team", record.away_team).maybeSingle();
   if (readError) throw new Error("Lectura del histórico del partido: " + readError.message);
   const fields = ["home_goals","away_goals","home_shots","away_shots","home_shots_on_target","away_shots_on_target","home_corners","away_corners","home_yellow","away_yellow","home_red","away_red","kickoff_time"];
-  const merged: Record<string, any> = { ...record, id: existing?.id ?? record.id, source: record.source ?? existing?.source ?? "football-data.org", captured_at: new Date().toISOString() };
+  const { id: _historicalId, ...recordWithoutId } = record;
+  const merged: Record<string, any> = { ...recordWithoutId, source: record.source ?? existing?.source ?? "football-data.org", captured_at: new Date().toISOString() };
   for (const field of fields) merged[field] = record[field] ?? existing?.[field] ?? null;
   const { error } = await db.from("historical_matches").upsert(merged,{onConflict:"league_code,season,match_date,home_team,away_team"});
   if (error) throw new Error("Guardado del histórico del partido: " + error.message);
