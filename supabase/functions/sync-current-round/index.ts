@@ -179,6 +179,35 @@ function conferenceHistoricalRecord(match: ApiFixture, year: number) {
 
 type ConferenceHistoricalRecord = ReturnType<typeof conferenceHistoricalRecord>;
 
+function historicalMatchId(leagueCode: string, season: string, date: string, home: string, away: string): number {
+  const value = ["historical", leagueCode, season, date, home, away].join("|").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9|]/g, "");
+  let hash = 14695981039346656037n;
+  for (let i = 0; i < value.length; i++) { hash ^= BigInt(value.charCodeAt(i)); hash = BigInt.asUintN(64, hash * 1099511628211n); }
+  return 700_000_000_000_000 + Number(hash & ((1n << 48n) - 1n));
+}
+async function upsertHistoricalScoreRows(db: Db, records: Record<string, any>[]) {
+  for (let i = 0; i < records.length; i += 200) {
+    const chunk = records.slice(i, i + 200); if (!chunk.length) continue;
+    const leagueCode = String(chunk[0].league_code), season = String(chunk[0].season);
+    const dates = [...new Set(chunk.map((row) => String(row.match_date)))];
+    const { data: existingRows, error: readError } = await db.from("historical_matches").select("*").eq("league_code", leagueCode).eq("season", season).in("match_date", dates);
+    if (readError) throw new Error("Lectura del histórico: " + readError.message);
+    const byKey = new Map<string, any>();
+    for (const row of existingRows ?? []) byKey.set(JSON.stringify([row.season,row.match_date,row.home_team,row.away_team]), row);
+    const merged = chunk.map((record) => {
+      const previous = byKey.get(JSON.stringify([record.season,record.match_date,record.home_team,record.away_team]));
+      const stats = ["home_shots","away_shots","home_shots_on_target","away_shots_on_target","home_corners","away_corners","home_yellow","away_yellow","home_red","away_red"];
+      const row: Record<string, any> = { ...record, id: previous?.id ?? record.id,
+        home_goals: record.home_goals ?? previous?.home_goals ?? null, away_goals: record.away_goals ?? previous?.away_goals ?? null,
+        kickoff_time: record.kickoff_time ?? previous?.kickoff_time ?? null, source: previous?.source ?? record.source, captured_at: new Date().toISOString() };
+      for (const field of stats) row[field] = record[field] ?? previous?.[field] ?? null;
+      return row;
+    });
+    const { error } = await db.from("historical_matches").upsert(merged,{onConflict:"league_code,season,match_date,home_team,away_team"});
+    if (error) throw new Error("Guardado del histórico: " + error.message);
+  }
+}
+
 async function upsertConferenceHistoricalRecords(
   db: Db,
   records: ConferenceHistoricalRecord[],
@@ -524,6 +553,7 @@ Deno.serve(async (request) => {
     for (const competition of COMPETITIONS) {
       let matchesSeen = 0;
       let matchesSaved = 0;
+      const historicalRows: Record<string, any>[] = [];
       try {
         const matches = await fetchMatches(competition.code, year, token, fromDate, toDate);
         matchesSeen = matches.length;
@@ -561,8 +591,22 @@ Deno.serve(async (request) => {
           }, { onConflict: "id" });
           if (error) throw error;
           matchesSaved++;
+          const homeGoals = match.score?.fullTime?.home ?? null;
+          const awayGoals = match.score?.fullTime?.away ?? null;
+          if (normalizedStatus(match.status) === "FINISHED" && Number.isInteger(homeGoals) && Number.isInteger(awayGoals) && Number(homeGoals) >= 0 && Number(awayGoals) >= 0) {
+            const matchDate = match.utcDate.slice(0, 10);
+            historicalRows.push({
+              id: historicalMatchId(competition.code, season, matchDate, match.homeTeam.name, match.awayTeam.name),
+              league_code: competition.code, league_name: competition.name, season, match_date: matchDate,
+              kickoff_time: match.utcDate.slice(11, 16) || null, home_team: match.homeTeam.name, away_team: match.awayTeam.name,
+              home_goals: Number(homeGoals), away_goals: Number(awayGoals),
+              home_shots: null, away_shots: null, home_shots_on_target: null, away_shots_on_target: null,
+              home_corners: null, away_corners: null, home_yellow: null, away_yellow: null, home_red: null, away_red: null, source: PROVIDER,
+            });
+          }
         }
-        outcomes.push({ competicion: competition.code, estado: "SUCCESS", partidos_vistos: matchesSeen, partidos_guardados: matchesSaved });
+        if (historicalRows.length) await upsertHistoricalScoreRows(db, historicalRows);
+        outcomes.push({ competicion: competition.code, estado: "SUCCESS", partidos_vistos: matchesSeen, partidos_guardados: matchesSaved, resultados_historicos: historicalRows.length });
       } catch (error) {
         outcomes.push({ competicion: competition.code, estado: "FAILED", error: String(error).slice(0, 350) });
       }
