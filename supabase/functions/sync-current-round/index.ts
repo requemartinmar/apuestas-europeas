@@ -617,6 +617,7 @@ Deno.serve(async (request) => {
               id: historicalMatchId(competition.code, season, matchDate, match.homeTeam.name, match.awayTeam.name),
               league_code: competition.code, league_name: competition.name, season, match_date: matchDate,
               kickoff_time: match.utcDate.slice(11, 16) || null, home_team: match.homeTeam.name, away_team: match.awayTeam.name,
+              home_team_id: homeId, away_team_id: awayId,
               home_goals: Number(homeGoals), away_goals: Number(awayGoals),
               home_shots: null, away_shots: null, home_shots_on_target: null, away_shots_on_target: null,
               home_corners: null, away_corners: null, home_yellow: null, away_yellow: null, home_red: null, away_red: null, source: PROVIDER,
