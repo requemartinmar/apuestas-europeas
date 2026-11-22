@@ -624,7 +624,14 @@ Deno.serve(async (request) => {
               home_team: homeName, away_team: awayName,
               id: historicalMatchId(leagueCode, String(record.season), String(record.match_date), homeName, awayName) };
           });
-          await upsertHistoricalScoreRows(db, alignedRows);
+          const groupedHistoricalRows = new Map<string, Record<string, any>[]>();
+          for (const row of alignedRows) {
+            const key = String(row.league_code) + "|" + String(row.season);
+            const group = groupedHistoricalRows.get(key) ?? [];
+            group.push(row);
+            groupedHistoricalRows.set(key, group);
+          }
+          for (const group of groupedHistoricalRows.values()) await upsertHistoricalScoreRows(db, group);
         }
         outcomes.push({ competicion: competition.code, estado: "SUCCESS", partidos_vistos: matchesSeen, partidos_guardados: matchesSaved, resultados_historicos: historicalRows.length });
       } catch (error) {
