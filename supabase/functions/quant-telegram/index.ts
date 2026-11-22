@@ -1,0 +1,1998 @@
+// Bot Quant CANCHA — refactor candidato (sin cuotas ni motores de arbitraje)
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { CANCHA_LOOKAHEAD_DAYS, buildNoUpcomingCanchaMessage, getCanchaWindow } from "./cancha-window.ts";
+import { formatUpcomingFixturesMessages } from "./upcoming-fixtures.ts";
+import { formatCanchaMessages } from "./cancha-format.ts";
+import { evaluatePredictionOutcome, findUniqueFixtureMatch } from "./settlement.ts";
+
+const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+const TELEGRAM_WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
+const TELEGRAM_CHAT_ID = Deno.env.get("TELEGRAM_CHAT_ID") ?? "";
+const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const TZ = "Europe/Madrid";
+const MIN_GAMES_KNOWN = 5;
+const KEYBOARD = {
+  keyboard: [
+    ["⚽ CANCHA", "🏆 TOP 3 CANCHA"],
+    ["📅 RESUMEN DIARIO CANCHA", "🎯 APUESTAS TOP CANCHA"],
+    ["📅 PRÓXIMOS PARTIDOS", "🔎 BUSCAR PARTIDO"],
+    ["📊 HISTORIAL"],
+  ].map((row) => row.map((text) => ({ text }))),
+  resize_keyboard: true,
+};
+async function getBettingSession(chatId: string) {
+  const { data, error } = await supabase.from("betting_sessions")
+    .select("session_data, expires_at")
+    .eq("telegram_chat_id", chatId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Error leyendo sesión de apuestas: ${error.message}`);
+  }
+
+  if (!data || new Date(data.expires_at) <= new Date()) return null;
+
+  return data.session_data;
+}
+
+async function saveBettingSession(
+  chatId: string,
+  sessionData: Record<string, unknown>
+) {
+  const { data, error } = await supabase.from("betting_sessions").upsert({
+    telegram_chat_id: chatId,
+    session_data: sessionData,
+    updated_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 86400000).toISOString(),
+  });
+
+  if (error) {
+    throw new Error(`Error guardando sesión de apuestas: ${error.message}`);
+  }
+
+  return data;
+}
+
+async function deleteBettingSession(chatId: string) {
+  const { data, error } = await supabase.from("betting_sessions")
+    .delete()
+    .eq("telegram_chat_id", chatId);
+
+  if (error) {
+    throw new Error(`Error eliminando sesión de apuestas: ${error.message}`);
+  }
+
+  return data;
+}
+
+function esc(text: unknown): string {
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function normalizeName(name: string): string {
+  return (name ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+const COUNTRY_CODES = new Set([
+  "eng", "esp", "ita", "ger", "fra", "por", "ned", "bel", "sui", "sco", "den", "aut", "nor", "srb",
+  "ukr", "tur", "gre", "aze", "mco", "cro", "cze", "cyp", "isr", "kaz", "pol", "swe", "svk", "svn",
+  "hun", "bul", "rou", "lux", "irl", "nir", "wal", "fin", "isl", "blr", "mda", "mkd", "alb", "bih",
+  "mlt", "geo", "arm", "lva", "ltu", "est", "and",
+]);
+const STOP_TOKENS = new Set([
+  "fc", "cf", "sc", "ac", "as", "afc", "ssc", "bc", "bsc", "fk", "kv", "sk", "pae", "sfp", "osc",
+  "club", "de", "cd", "ud", "sd", "rcd", "ca", "the", "rc", "sv", "vfb", "vfl", "fsv", "and",
+]);
+const TEAM_ALIASES: Record<string, string> = {
+  "ath madrid": "atletico madrid", "ath bilbao": "athletic bilbao",
+  "athletic club": "athletic bilbao", "betis": "real betis",
+  "sociedad": "real sociedad", "celta": "celta vigo",
+  "vallecano": "rayo vallecano", "espanol": "espanyol",
+  "oviedo": "real oviedo", "valladolid": "real valladolid",
+  "deportivo alaves": "alaves", "internazionale milano": "inter",
+  "inter milan": "inter", "bayern munchen": "bayern munich",
+  "stade brestois": "brest", "sport lisboa e benfica": "benfica",
+  "sporting clube portugal": "sporting cp", "psv eindhoven": "psv",
+  "feyenoord rotterdam": "feyenoord", "kobenhavn": "copenhagen",
+  "crvena zvezda": "red star belgrade", "olympiakos": "olympiacos",
+  "qarabag agdam": "qarabag", "psg": "paris saint germain",
+  "sporting lisbon": "sporting cp", "racing lens": "lens",
+  "olympiakos piraeus": "olympiacos", "red bull salzburg": "salzburg",
+  "rb salzburg": "salzburg", "aek athens": "aek",
+  "manchester united": "man utd", "man united": "man utd",
+  "tottenham hotspur": "tottenham", "wolverhampton wanderers": "wolves",
+  "borussia dortmund": "dortmund", "borussia monchengladbach": "monchengladbach",
+  "rb leipzig": "leipzig", "bayer 04 leverkusen": "leverkusen",
+  "ac milan": "milan",
+};
+
+function teamKey(name: string): string {
+  const plain = (name ?? "")
+    .toLowerCase()
+    .replace(/ø/g, "o").replace(/æ/g, "ae").replace(/ß/g, "ss").replace(/ł/g, "l").replace(/đ/g, "d")
+    .normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, " ").trim();
+  let tokens = plain.split(" ").filter((t) => t && !/^\d+$/.test(t));
+  if (tokens.length > 1 && COUNTRY_CODES.has(tokens[tokens.length - 1])) tokens = tokens.slice(0, -1);
+  const stripped = tokens.filter((t) => !STOP_TOKENS.has(t));
+  const base = (stripped.length > 0 ? stripped : tokens).join(" ");
+  return (TEAM_ALIASES[base] ?? base).replace(/ /g, "");
+}
+
+function addMadridCalendarDays(dateText: string, days: number): string {
+  const [y, m, d] = dateText.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function madridMidnightUtc(dateText: string): Date {
+  const [y, m, d] = dateText.split("-").map(Number);
+  const target = Date.UTC(y, m - 1, d);
+  let guess = target;
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+
+  for (let i = 0; i < 3; i++) {
+    const parts = Object.fromEntries(
+      formatter.formatToParts(new Date(guess)).map((p) => [p.type, p.value]),
+    );
+    const represented = Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second),
+    );
+    guess += target - represented;
+  }
+  return new Date(guess);
+}
+
+async function getBetFixturesForDate(dateText: string) {
+  const start = madridMidnightUtc(dateText);
+  const end = madridMidnightUtc(addMadridCalendarDays(dateText, 1));
+
+  const { data, error } = await supabase
+    .from("partidos")
+    .select("id,fecha_utc,jornada,estado,competid_id,jornada_nombre,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)")
+    .gte("fecha_utc", start.toISOString())
+    .lt("fecha_utc", end.toISOString())
+    .in("estado", ["SCHEDULED", "POSTPONED"])
+    .order("fecha_utc", { ascending: true })
+    .limit(100);
+
+  if (error) throw new Error("Selector de partidos: " + error.message);
+  return data ?? [];
+}
+
+async function showBetFixturesForDate(
+  chatId: number | string,
+  dateText: string,
+  availableDates: string[],
+) {
+  const fixtures = await getBetFixturesForDate(dateText);
+
+  if (!fixtures.length) {
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "No hay partidos disponibles para ese día. Elige otra fecha.",
+    });
+    return;
+  }
+
+  const grouped = new Map<string, any[]>();
+  for (const fixture of fixtures) {
+    const competition = (fixture.competicion as any)?.[0]?.nombre ?? (fixture.competicion as any)?.nombre ?? "Competición sin nombre";
+    if (!grouped.has(competition)) grouped.set(competition, []);
+    grouped.get(competition)!.push(fixture);
+  }
+
+  const lines = [`⚽ PARTIDOS DEL ${dateText.split("-").reverse().join("/")}`, ""];
+  for (const [competition, matches] of grouped) {
+    lines.push(`🏆 ${competition}`);
+    for (const match of matches) {
+      const home = (match.equipo_local as any)?.[0]?.nombre ?? (match.equipo_local as any)?.nombre ?? "Local";
+      const away = (match.equipo_visitante as any)?.[0]?.nombre ?? (match.equipo_visitante as any)?.nombre ?? "Visitante";
+      lines.push(`• ${fmtTime(new Date(match.fecha_utc))} — ${home} - ${away}`);
+    }
+    lines.push("");
+  }
+  lines.push("Selecciona un partido en los botones inferiores.");
+
+  const keyboard: string[][] = [];
+  for (const match of fixtures.slice(0, 50)) {
+    const home = (match.equipo_local as any)?.[0]?.nombre ?? (match.equipo_local as any)?.nombre ?? "Local";
+    const away = (match.equipo_visitante as any)?.[0]?.nombre ?? (match.equipo_visitante as any)?.nombre ?? "Visitante";
+    const label = `⚽ ${(home + " - " + away).slice(0, 42)} #${match.id}`;
+    keyboard.push([label]);
+  }
+
+  const otherDates = availableDates.filter((d) => d !== dateText);
+  for (let i = 0; i < otherDates.length; i += 2) {
+    keyboard.push(
+      otherDates.slice(i, i + 2).map((d) => `📅 ${d}`),
+    );
+  }
+  keyboard.push(["✍️ Partido manual"]);
+  keyboard.push(["↩️ Menú"]);
+
+  await saveBettingSession(String(chatId), {
+    step: "fixture_match",
+    data: { date: dateText, availableDates },
+  });
+
+  await telegram("sendMessage", {
+    chat_id: chatId,
+    text: lines.join("\n"),
+    reply_markup: {
+      keyboard,
+      resize_keyboard: true,
+    },
+  });
+}
+
+async function startBetFixturePicker(chatId: number | string) {
+  const today = madridDate(new Date());
+  const tomorrow = addMadridCalendarDays(today, 1);
+  const endDate = addMadridCalendarDays(tomorrow, 1);
+  const start = madridMidnightUtc(tomorrow);
+  const end = madridMidnightUtc(endDate);
+
+  const { data, error } = await supabase
+    .from("partidos")
+    .select("fecha_utc")
+    .gte("fecha_utc", start.toISOString())
+    .lt("fecha_utc", end.toISOString())
+    .in("estado", ["SCHEDULED", "POSTPONED"])
+    .order("fecha_utc", { ascending: true })
+    .limit(500);
+
+  if (error) throw new Error("Selector de partidos: " + error.message);
+
+  const dates: string[] = [...new Set<string>(
+    (data ?? []).map((match: any) => madridDate(new Date(match.fecha_utc))),
+  )].sort();
+
+  if (!dates.length) {
+    await saveBettingSession(String(chatId), {
+      step: "match",
+      data: {},
+    });
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "No hay partidos disponibles para mañana. Escribe el partido manualmente:",
+      reply_markup: { force_reply: true },
+    });
+    return;
+  }
+
+  const firstDate = dates.includes(tomorrow) ? tomorrow : dates[0];
+  await showBetFixturesForDate(chatId, firstDate, dates);
+}
+function pct(x: number): string { return (x * 100).toFixed(1); }
+function madridDate(d: Date): string { return d.toLocaleDateString("en-CA", { timeZone: TZ }); }
+function fmtTime(d: Date): string {
+  const parts = new Intl.DateTimeFormat("es-ES", {
+    timeZone: TZ, day: "2-digit", month: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("day")}/${get("month")} ${get("hour")}:${get("minute")}`;
+}
+
+type Json = any;
+
+async function telegram(method: string, payload: Record<string, unknown>) {
+  if (!TELEGRAM_BOT_TOKEN) {
+    throw new Error("TELEGRAM_BOT_TOKEN no está configurado en Supabase.");
+  }
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000),
+  });
+  let result: any = null;
+  try { result = await response.json(); } catch { /* respuesta no JSON */ }
+  if (!response.ok || result?.ok !== true) {
+    const description = String(result?.description ?? response.statusText ?? "Error desconocido").slice(0, 300);
+    console.error("telegram_api_error", { method, status: response.status, error_code: result?.error_code ?? null, description });
+    throw new Error(`Telegram ${method} rechazado: ${description}`);
+  }
+  return result;
+}
+
+function mean(v:any[]):number|null{const a=v.filter(x=>x!=null&&Number.isFinite(Number(x))).map(Number);return a.length?a.reduce((x,y)=>x+y,0)/a.length:null;}
+function pois(l:number):number[]{const p=[Math.exp(-l)];for(let i=1;i<=10;i++)p[i]=p[i-1]*l/i;return p;}
+function poissonOver(lambda:number,line:number):number{if(!Number.isFinite(lambda)||lambda<=0)return 0;const limit=Math.floor(line);let term=Math.exp(-lambda),cum=term;for(let k=1;k<=limit;k++){term*=lambda/k;cum+=term;}return Math.max(0,Math.min(1,1-cum));}
+async function cancha(chatId:number|string,mode:"menu"|"top3"|"search"|"daily"|"bettingtop",term=""){
+ const now=new Date(),today=madridDate(now),window=getCanchaWindow(now);
+ const queryStart=mode==="daily"?madridMidnightUtc(today).toISOString():window.start;
+ const queryEnd=mode==="daily"?madridMidnightUtc(addMadridCalendarDays(today,1)).toISOString():window.end;
+ const PAGE_SIZE=1000;
+ const ms:any[]=[];let offset=0;let me:any=null;
+ while(true){
+  const {data:page,error}=await supabase.from("partidos").select("id,fecha_utc,equipo_local_id,equipo_visitante_id,competid_id,jornada_nombre,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)").gte("fecha_utc",queryStart).lt("fecha_utc",queryEnd).in("estado",["SCHEDULED","POSTPONED"]).order("fecha_utc",{ascending:true}).range(offset,offset+PAGE_SIZE-1);
+  if(error){me=error;break;}
+  const rows=page??[];ms.push(...rows);
+  if(rows.length<PAGE_SIZE)break;
+  offset+=PAGE_SIZE;
+ }
+ if(me)throw new Error("Cancha partidos: "+me.message);
+if(!ms.length){await telegram("sendMessage",{chat_id:chatId,text:mode==="daily"?"📅 <b>RESUMEN DIARIO CANCHA · "+today+"</b>\nHoy no hay partidos registrados en el calendario de Cancha.":"No hay partidos pendientes registrados en Cancha para mañana.\nPuede deberse a un parón o a que el calendario todavía no se ha actualizado.\nNo se generarán predicciones sin encuentros verificados." ,parse_mode:"HTML"});return;}
+
+ const ids=[...new Set(ms.flatMap((m:any)=>[String(m.equipo_local_id),String(m.equipo_visitante_id)]))];
+ const {data:als,error:ae}=await supabase.from("equipo_alias").select("equipo_id,hist_league,hist_team").in("equipo_id",ids);if(ae)throw new Error("Cancha equivalencias: "+ae.message);
+ const amap=new Map<string,any>((als??[]).map((a:any)=>[String(a.equipo_id),a]));const codes=[...new Set((als??[]).map((a:any)=>a.hist_league).filter(Boolean))];
+  const hist=new Map<string,any[]>(),base=new Map<string,{h:number;a:number;n:number}>();
+  const validScore=(x:any)=>x.home_goals!=null&&x.away_goals!=null&&Number.isFinite(Number(x.home_goals))&&Number.isFinite(Number(x.away_goals))&&Number.isInteger(Number(x.home_goals))&&Number.isInteger(Number(x.away_goals))&&Number(x.home_goals)>=0&&Number(x.away_goals)>=0;
+  await Promise.all(codes.map(async(c:any)=>{
+   const rows:any[]=[];let offset=0;
+   while(true){
+    const {data,error}=await supabase.from("historical_matches").select("match_date,home_team,away_team,home_goals,away_goals,home_shots,away_shots,home_shots_on_target,away_shots_on_target,home_corners,away_corners,home_yellow,away_yellow,home_red,away_red").eq("league_code",c).lt("match_date",now.toISOString().slice(0,10)).order("match_date",{ascending:false}).range(offset,offset+999);
+    if(error)throw new Error("Cancha histórico "+c+": "+error.message);
+    const page=data??[];rows.push(...page);
+    if(page.length<1000)break;
+    offset+=1000;
+   }
+   hist.set(c,rows);
+   const complete=rows.filter(validScore);
+   if(complete.length>=20){
+    base.set(c,{h:mean(complete.map((x:any)=>x.home_goals))!,a:mean(complete.map((x:any)=>x.away_goals))!,n:complete.length});
+   }
+  }));
+  const out:any[]=[];
+  for(const m of ms){
+   const ah=amap.get(String(m.equipo_local_id)),aa=amap.get(String(m.equipo_visitante_id));
+   if(!ah||!aa||ah.hist_league!==aa.hist_league)continue;
+   const rows=hist.get(ah.hist_league)??[],cut=String(m.fecha_utc).slice(0,10);
+   const b=base.get(ah.hist_league);
+   if(!b)continue;
+   const team=(name:string,venue:string)=>{
+    const all=rows.filter((x:any)=>validScore(x)&&x.match_date<cut&&(x.home_team===name||x.away_team===name)).slice(0,12);
+    const at=all.filter((x:any)=>venue==="home"?x.home_team===name:x.away_team===name).slice(0,8);
+    const val=(r:any,k:string)=>{
+     const h=r.home_team===name;
+     if(k==="gf")return h?r.home_goals:r.away_goals;
+     if(k==="ga")return h?r.away_goals:r.home_goals;
+     if(k==="shots")return h?r.home_shots:r.away_shots;
+     if(k==="corner")return h?r.home_corners:r.away_corners;
+     if(k==="sot")return h?r.home_shots_on_target:r.away_shots_on_target;
+     if(k==="card"){
+      const y=h?r.home_yellow:r.away_yellow,z=h?r.home_red:r.away_red;
+      return y==null&&z==null?null:Number(y??0)+Number(z??0);
+     }
+     return null;
+    };
+    const metric=(k:string)=>{
+     const x=mean(all.map(r=>val(r,k))),y=mean(at.map(r=>val(r,k)));
+     return y!=null&&at.length>=3&&x!=null?.7*y+.3*x:y??x;
+    };
+    const metricN=(k:string)=>all.filter(r=>val(r,k)!=null&&Number.isFinite(Number(val(r,k)))).length;
+    return {n:all.length,gf:metric("gf"),ga:metric("ga"),shots:metric("shots"),corner:metric("corner"),sot:metric("sot"),card:metric("card"),shotsN:metricN("shots"),cornerN:metricN("corner"),sotN:metricN("sot"),cardN:metricN("card")};
+   };
+   const h=team(ah.hist_team,"home"),a=team(aa.hist_team,"away");
+   if(h.n<5||a.n<5||h.gf==null||h.ga==null||a.gf==null||a.ga==null)continue;
+   const lh=Math.max(0,.45*h.gf+.45*a.ga+.1*b.h);
+   const la=Math.max(0,.45*a.gf+.45*h.ga+.1*b.a);
+   const ph=pois(lh),pa=pois(la);
+   let o15=0,o25=0,bt=0,w=0,d=0,l=0,best={p:-1,h:0,a:0};
+   for(let i=0;i<ph.length;i++)for(let j=0;j<pa.length;j++){
+    const q=ph[i]*pa[j];
+    if(i+j>=2)o15+=q;
+    if(i+j>=3)o25+=q;
+    if(i&&j)bt+=q;
+    if(i>j)w+=q;else if(i===j)d+=q;else l+=q;
+    if(q>best.p)best={p:q,h:i,a:j};
+   }
+   const candidates=[
+    {market:"1X2 · Victoria local",prob:w*100},
+    {market:"1X2 · Empate",prob:d*100},
+    {market:"1X2 · Victoria visitante",prob:l*100},
+    {market:"Más de 1,5 goles",prob:o15*100},
+    {market:"Más de 2,5 goles",prob:o25*100},
+    {market:"Ambos equipos marcan",prob:bt*100}
+   ];
+   const pick=candidates.reduce((best,x)=>x.prob>best.prob?x:best,candidates[0]);
+   const extraMarkets:any[]=[];
+   const addCountMarket=(label:string,lambda:number|null,homeN:number,awayN:number,line:number)=>{if(lambda==null||homeN<5||awayN<5)return;extraMarkets.push({name:label,prob:poissonOver(lambda,line)*100,expected:lambda,line,homeN,awayN});};
+   const shotsTotal=h.shots!=null&&a.shots!=null?h.shots+a.shots:null;
+   const sotTotal=h.sot!=null&&a.sot!=null?h.sot+a.sot:null;
+   const cornersTotal=h.corner!=null&&a.corner!=null?h.corner+a.corner:null;
+   const cardsTotal=h.card!=null&&a.card!=null?h.card+a.card:null;
+   addCountMarket("Más de 20,5 remates totales",shotsTotal,h.shotsN,a.shotsN,20.5);
+   addCountMarket("Más de 7,5 remates a puerta",sotTotal,h.sotN,a.sotN,7.5);
+   addCountMarket("Más de 8,5 córners",cornersTotal,h.cornerN,a.cornerN,8.5);
+   addCountMarket("Más de 3,5 tarjetas",cardsTotal,h.cardN,a.cardN,3.5);
+   out.push({m,h,a,lh,la,score:(o25*.4+bt*.35+o15*.25)*100,pick,o15:o15*100,o25:o25*100,bt:bt*100,w:w*100,d:d*100,l:l*100,best,extraMarkets,shotsTotal,sotTotal,cornersTotal,cardsTotal});
+  }
+ const fmt=(v:number|null|undefined)=>v==null?"—":Number(v).toFixed(1);
+
+ let chosen=out.sort((x,y)=>y.score-x.score);
+
+ if(mode==="top3"){
+  chosen=out.sort((x,y)=>y.pick.prob-x.pick.prob).slice(0,3);
+ }
+
+ // Resumen diario: filtrar por los equipos seleccionados.
+ const favoriteTeams = new Set(["real madrid","barcelona","atletico madrid","real betis","arsenal","manchester city","manchester united","liverpool","chelsea","aston villa","bayern munich","juventus","inter","milan","como","paris saint germain"].map(teamKey));
+ const isFavoriteFixture = (m:any) => {
+  const competition = normalizeName(m.competicion?.nombre ?? "");
+  const isLaLigaOrPremier = competition === "laliga" || competition === "premierleague";
+  return isLaLigaOrPremier || favoriteTeams.has(teamKey(m.equipo_local?.nombre??"")) || favoriteTeams.has(teamKey(m.equipo_visitante?.nombre??""));
+ };
+ if(mode==="daily"){
+  const scope=ms.filter(isFavoriteFixture);
+  if(!scope.length){const label=new Intl.DateTimeFormat("es-ES",{timeZone:TZ,weekday:"long",day:"2-digit",month:"long"}).format(now);await telegram("sendMessage",{chat_id:chatId,text:"📅 <b>RESUMEN DIARIO CANCHA · "+esc(label.toLocaleUpperCase("es-ES"))+"</b>\nHoy no hay partidos de los equipos top de LaLiga y Premier League ni de tus equipos seleccionados de las demás ligas.\n\nNo se incluyen encuentros de otros días.",parse_mode:"HTML"});return;}
+  const predictions=new Map(out.map((x:any)=>[String(x.m.id),x]));
+  const entries=scope.map((m:any)=>{
+   const x:any=predictions.get(String(m.id));
+   const home=esc(m.equipo_local?.nombre??"Local"),away=esc(m.equipo_visitante?.nombre??"Visitante");
+   const countLines=x?["📈 Medias estimadas (local / visitante):","🎯 Remates: "+fmt(x.h.shots)+" / "+fmt(x.a.shots)+" · A puerta: "+fmt(x.h.sot)+" / "+fmt(x.a.sot),"🚩 Córners: "+fmt(x.h.corner)+" / "+fmt(x.a.corner),"🟨 Tarjetas: "+fmt(x.h.card)+" / "+fmt(x.a.card),"📐 Totales estimados: remates "+fmt(x.shotsTotal)+" · a puerta "+fmt(x.sotTotal)+" · córners "+fmt(x.cornersTotal)+" · tarjetas "+fmt(x.cardsTotal)]:[];
+   const content=x ? "⚽ <b>"+home+" — "+away+"</b>\n🎯 "+x.pick.market+": <b>"+x.pick.prob.toFixed(1)+"%</b> · Marcador: <b>"+x.best.h+" — "+x.best.a+"</b>\n🥅 Goles esperados: "+x.lh.toFixed(2)+" — "+x.la.toFixed(2)+"\n"+countLines.join("\n") : "⚽ <b>"+home+" — "+away+"</b>\n<i>Histórico insuficiente: sin pronóstico.</i>";
+   return {competition:m.competicion?.nombre??"Competición",kickoff:m.fecha_utc,content};
+  });
+  for(const message of formatCanchaMessages(entries)) await telegram("sendMessage",{chat_id:chatId,text:message.replace("CANCHA · PRÓXIMOS PARTIDOS","RESUMEN DIARIO CANCHA · HOY"),parse_mode:"HTML"});
+  return;
+ }
+ if(mode==="bettingtop"){
+  const picks:any[]=[];
+  for(const x of out){
+   if(!isFavoriteFixture(x.m))continue;
+   const markets=[{name:"Victoria local",prob:x.w},{name:"Empate",prob:x.d},{name:"Victoria visitante",prob:x.l},{name:"Más de 1,5 goles",prob:x.o15},{name:"Más de 2,5 goles",prob:x.o25},{name:"Ambos marcan",prob:x.bt},...x.extraMarkets].filter((v:any)=>Number.isFinite(v.prob)&&v.prob>=60).sort((a:any,b:any)=>b.prob-a.prob);
+   if(markets.length)picks.push({x,market:markets[0]});
+  }
+  picks.sort((a,b)=>b.market.prob-a.market.prob);
+  const unique=picks.filter((item,index,all)=>all.findIndex(v=>v.x.m.id===item.x.m.id)===index).slice(0,5);
+  if(!unique.length){await telegram("sendMessage",{chat_id:chatId,text:"🎯 No hay selecciones CANCHA que alcancen el umbral orientativo del 60% entre tus equipos para mañana. No se fuerzan apuestas."});return;}
+  const body=unique.map((item,i)=>{const x=item.x,m=x.m;return ["<b>"+(i+1)+". "+esc(m.equipo_local?.nombre??"Local")+" — "+esc(m.equipo_visitante?.nombre??"Visitante")+"</b>","🏆 "+esc(m.competicion?.nombre??"Competición")+" · "+esc(fmtTime(new Date(m.fecha_utc))),"🎯 <b>"+esc(item.market.name)+" · "+item.market.prob.toFixed(1)+"%</b>","📊 Muestra: "+x.h.n+" / "+x.a.n+" partidos · Marcador estimado "+x.best.h+"-"+x.best.a, ...(item.market.expected!=null?["📐 Media estimada: "+item.market.expected.toFixed(1)+" · muestra válida: "+item.market.homeN+"/"+item.market.awayN]:[])].join("\n");}).join("\n\n━━━━━━━━━━━━━━\n\n");
+  await telegram("sendMessage",{chat_id:chatId,parse_mode:"HTML",text:"🎯 <b>APUESTAS TOP CANCHA · MAÑANA</b>\nProbabilidades del modelo, sin cuotas ni cálculo de valor esperado.\n\n"+body+"\n\n<i>Estimaciones estadísticas, no garantías ni recomendaciones personalizadas. Comprueba las cuotas y apuesta responsablemente.</i>"});
+  return;
+ }
+ // CANCHA general y búsqueda: incluir todos los partidos,
+ // tengan o no histórico suficiente.
+ if(mode==="menu" || mode==="search"){
+  const q=normalizeName(term);
+
+  const scope=mode==="search"
+   ? ms.filter((m:any)=>
+      normalizeName(m.equipo_local?.nombre??"").includes(q) ||
+      normalizeName(m.equipo_visitante?.nombre??"").includes(q)
+     )
+   : ms;
+
+  if(!scope.length){
+   await telegram("sendMessage",{
+    chat_id:chatId,
+    text:mode==="search"
+     ?"No se encontraron partidos para ese equipo."
+     :"No hay partidos disponibles."
+   });
+   return;
+  }
+
+  const predictions=new Map(
+   out.map((x:any)=>[String(x.m.id),x])
+  );
+
+  const entries=scope.map((m:any)=>{
+   const prediction:any=predictions.get(String(m.id));
+   const home=esc(m.equipo_local?.nombre??"Local");
+   const away=esc(m.equipo_visitante?.nombre??"Visitante");
+
+   if(!prediction){
+    return {
+     competition:m.competicion?.nombre??"Competición",
+     kickoff:m.fecha_utc,
+     content:
+      "⚽ <b>"+home+" — "+away+"</b>\n"+
+      "<i>Sin muestra histórica suficiente: sin probabilidades.</i>"
+    };
+   }
+
+   const x=prediction;
+
+   const content=[
+    "⚽ <b>"+home+" — "+away+"</b>",
+    "🎯 Marcador más probable: <b>"+x.best.h+" — "+x.best.a+"</b>",
+    "🥅 Goles esperados: "+x.lh.toFixed(2)+" — "+x.la.toFixed(2),
+    "",
+    "📊 <b>PROBABILIDAD 1X2</b>",
+    "🏠 Local: <b>"+x.w.toFixed(1)+"%</b>",
+    "🤝 Empate: <b>"+x.d.toFixed(1)+"%</b>",
+    "✈️ Visitante: <b>"+x.l.toFixed(1)+"%</b>",
+    "",
+    "⚽ <b>MERCADOS DE GOLES</b>",
+    "+1,5 goles: <b>"+x.o15.toFixed(1)+"%</b>",
+    "+2,5 goles: <b>"+x.o25.toFixed(1)+"%</b>",
+    "Ambos marcan: <b>"+x.bt.toFixed(1)+"%</b>",
+    "",
+    "📈 <b>MEDIA RECIENTE POR PARTIDO</b>",
+    "Remates totales (local / visitante): "+fmt(x.h.shots)+" / "+fmt(x.a.shots),
+    "Remates totales (local / visitante): "+fmt(x.h.shots)+" / "+fmt(x.a.shots),
+   "Remates a puerta (local / visitante): "+fmt(x.h.sot)+" / "+fmt(x.a.sot),
+    "Córners (local / visitante): "+fmt(x.h.corner)+" / "+fmt(x.a.corner),
+    "Tarjetas (local / visitante): "+fmt(x.h.card)+" / "+fmt(x.a.card),
+    "📚 Muestra: "+x.h.n+" partidos recientes del equipo local · "+x.a.n+" partidos recientes del equipo visitante",
+    "⭐ <b>Pronóstico más probable:</b> "+esc(x.pick.market)+" · <b>"+x.pick.prob.toFixed(1)+"%</b>"
+   ].join("\n");
+
+   return {
+    competition:m.competicion?.nombre??"Competición",
+    kickoff:m.fecha_utc,
+    content
+   };
+  });
+
+  const messages=formatCanchaMessages(entries);
+
+  for(const message of messages){
+   await telegram("sendMessage",{
+    chat_id:chatId,
+    text:message,
+    parse_mode:"HTML"
+   });
+  }
+
+  return;
+ }
+
+ if(!chosen.length){
+  await telegram("sendMessage",{
+   chat_id:chatId,
+   text:"No hay encuentros con histórico individual suficiente para TOP 3."
+  });
+  return;
+ }
+ let msg=chosen.map((x,i)=>{
+  const m=x.m,home=esc(m.equipo_local?.nombre??"Local"),away=esc(m.equipo_visitante?.nombre??"Visitante");
+  return [
+   (mode==="top3"?"🏅 <b>TOP "+(i+1)+"</b> · ":"")+"🏆 <b>"+esc(m.competicion?.nombre??"Cancha")+"</b> · "+esc(fmtTime(new Date(m.fecha_utc))),
+   "⚽ <b>"+home+" — "+away+"</b>",
+   "🎯 Marcador más probable: <b>"+x.best.h+" — "+x.best.a+"</b>",
+   "🥅 Goles esperados: "+x.lh.toFixed(2)+" — "+x.la.toFixed(2),
+   "",
+   "📊 <b>PROBABILIDAD 1X2</b>",
+   "🏠 Local: <b>"+x.w.toFixed(1)+"%</b>",
+   "🤝 Empate: <b>"+x.d.toFixed(1)+"%</b>",
+   "✈️ Visitante: <b>"+x.l.toFixed(1)+"%</b>",
+   "",
+   "⚽ <b>MERCADOS DE GOLES</b>",
+   "+1,5 goles: <b>"+x.o15.toFixed(1)+"%</b>",
+   "+2,5 goles: <b>"+x.o25.toFixed(1)+"%</b>",
+   "Ambos marcan: <b>"+x.bt.toFixed(1)+"%</b>",
+   "",
+   "📈 <b>MEDIA RECIENTE POR PARTIDO</b>",
+   "Remates a puerta (local / visitante): "+fmt(x.h.sot)+" / "+fmt(x.a.sot),
+   "Córners (local / visitante): "+fmt(x.h.corner)+" / "+fmt(x.a.corner),
+   "Tarjetas (local / visitante): "+fmt(x.h.card)+" / "+fmt(x.a.card),
+   "📚 Muestra: "+x.h.n+" partidos recientes del equipo local · "+x.a.n+" partidos recientes del equipo visitante",
+   "⭐ <b>Pronóstico más probable:</b> "+esc(x.pick.market)+" · <b>"+x.pick.prob.toFixed(1)+"%</b>"
+  ].join("\n");
+ }).join("\n\n━━━━━━━━━━━━━━\n\n");
+ const heading=`🏆 <b>TOP 3 CANCHA · ${CANCHA_LOOKAHEAD_DAYS} DÍAS</b>`;
+ const footer="\n\n<i>Datos históricos y estimaciones orientativas; no son garantías ni recomendaciones de apuesta.</i>";
+ const blocks:string[]=[];
+
+ const separator="\n\n━━━━━━━━━━━━━━\n\n";
+ const entries=msg.split(separator);
+ for(let i=0;i<entries.length;i+=3){
+  blocks.push(entries.slice(i,i+3).join(separator));
+ }
+ for(let i=0;i<blocks.length;i++){
+  await telegram("sendMessage",{
+   chat_id:chatId,
+   text:heading+(blocks.length>1?" · "+(i+1)+"/"+blocks.length:"")+"\n\n"+blocks[i]+footer,
+   parse_mode:"HTML"
+  });
+ }
+}
+
+
+async function ensureBankrollMovement(movement: {
+  account_id: string;
+  bet_id: string;
+  movement_type: string;
+  amount_cents: number;
+  description: string;
+  idempotency_key: string;
+}) {
+  const matchesExpected = (row: any) =>
+    String(row.account_id) === String(movement.account_id) &&
+    String(row.bet_id) === String(movement.bet_id) &&
+    row.movement_type === movement.movement_type &&
+    Number(row.amount_cents) === Number(movement.amount_cents);
+
+  const { data: existing, error: lookupError } = await supabase
+    .from("bankroll_movements")
+    .select("account_id, bet_id, movement_type, amount_cents")
+    .eq("idempotency_key", movement.idempotency_key)
+    .maybeSingle();
+
+  if (lookupError) throw lookupError;
+
+  if (existing) {
+    if (!matchesExpected(existing)) {
+      throw new Error("La clave idempotente ya existe con datos diferentes.");
+    }
+    return;
+  }
+
+  const { error: insertError } = await supabase
+    .from("bankroll_movements")
+    .insert(movement);
+
+  if (!insertError) return;
+
+  // Puede haber ganado otra ejecución concurrente.
+  const { data: raced, error: racedError } = await supabase
+    .from("bankroll_movements")
+    .select("account_id, bet_id, movement_type, amount_cents")
+    .eq("idempotency_key", movement.idempotency_key)
+    .maybeSingle();
+
+  if (racedError) throw racedError;
+
+  if (raced && matchesExpected(raced)) return;
+
+  throw insertError;
+}
+type PredictionSettlementSummary = {
+  checked: number;
+  settled: number;
+  won: number;
+  lost: number;
+  unmatched: number;
+  ambiguous: number;
+  unsupported: number;
+};
+
+async function settleModelPredictions(): Promise<PredictionSettlementSummary> {
+  const summary: PredictionSettlementSummary = {
+    checked: 0, settled: 0, won: 0, lost: 0, unmatched: 0, ambiguous: 0, unsupported: 0,
+  };
+  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const { data: pending, error: pendingError } = await supabase
+    .from("quant_prediction_log")
+    .select("id,sport_key,home_team,away_team,commence_time,market_key,selection,line")
+    .eq("result_status", "pending")
+    .lt("commence_time", cutoff)
+    .order("commence_time", { ascending: true })
+    .limit(1000);
+  if (pendingError) throw new Error("No se pudieron leer pronósticos pendientes: " + pendingError.message);
+  if (!pending?.length) return summary;
+
+  summary.checked = pending.length;
+  const competitionBySport: Record<string, string> = {
+    soccer_spain_la_liga: "140",
+    soccer_epl: "39",
+    soccer_italy_serie_a: "135",
+    soccer_germany_bundesliga: "78",
+    soccer_uefa_champs_league: "2",
+    soccer_uefa_europa_conference_league: "848",
+  };
+  const eligible = pending.filter((p: any) => Boolean(competitionBySport[String(p.sport_key ?? "")]));
+  summary.unsupported = pending.length - eligible.length;
+  if (!eligible.length) return summary;
+
+  const kickoffTimes = eligible
+    .map((p: any) => new Date(p.commence_time).getTime())
+    .filter((n: number) => Number.isFinite(n));
+  if (!kickoffTimes.length) return summary;
+  const marginMs = 24 * 60 * 60 * 1000;
+  const from = new Date(Math.min(...kickoffTimes) - marginMs).toISOString();
+  const to = new Date(Math.max(...kickoffTimes) + marginMs).toISOString();
+  const competitionIds = [...new Set(eligible.map((p: any) => competitionBySport[String(p.sport_key)]))];
+
+  const { data: fixtures, error: fixturesError } = await supabase
+    .from("partidos")
+    .select("id,competid_id,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,fuente")
+    .in("competid_id", competitionIds)
+    .eq("estado", "FINISHED")
+    .not("goles_local", "is", null)
+    .not("goles_visitante", "is", null)
+    .gte("fecha_utc", from)
+    .lte("fecha_utc", to)
+    .limit(2000);
+  if (fixturesError) throw new Error("No se pudieron leer resultados finalizados: " + fixturesError.message);
+  if (!fixtures?.length) {
+    summary.unmatched = eligible.length;
+    return summary;
+  }
+
+  const teamIds = [...new Set(fixtures.flatMap((f: any) => [f.equipo_local_id, f.equipo_visitante_id]))];
+  const { data: teams, error: teamsError } = await supabase
+    .from("equipos")
+    .select("id,nombre")
+    .in("id", teamIds);
+  if (teamsError) throw new Error("No se pudieron leer los nombres de los equipos: " + teamsError.message);
+  const teamNameById = new Map<string, string>((teams ?? []).map((t: any) => [String(t.id), String(t.nombre ?? "")]));
+
+  const fixtureIndex = new Map<string, any[]>();
+  for (const f of fixtures) {
+    const home = teamNameById.get(String(f.equipo_local_id)) ?? "";
+    const away = teamNameById.get(String(f.equipo_visitante_id)) ?? "";
+    if (!home || !away || !f.fecha_utc) continue;
+    const key = [String(f.competid_id), teamKey(home), teamKey(away)].join("|");
+    const list = fixtureIndex.get(key) ?? [];
+    list.push({ ...f, home_name: home, away_name: away });
+    fixtureIndex.set(key, list);
+  }
+
+  for (const p of eligible) {
+    const competitionId = competitionBySport[String(p.sport_key)];
+    const key = [competitionId, teamKey(String(p.home_team ?? "")), teamKey(String(p.away_team ?? ""))].join("|");
+    const fixtureMatch = findUniqueFixtureMatch(fixtureIndex.get(key) ?? [], p.commence_time);
+    if (fixtureMatch.status === "missing") {
+      summary.unmatched++;
+      continue;
+    }
+    if (fixtureMatch.status === "ambiguous") {
+      summary.ambiguous++;
+      continue;
+    }
+
+    const fixture = fixtureMatch.fixture;
+    const homeScore = Number(fixture.goles_local);
+    const awayScore = Number(fixture.goles_visitante);
+    if (!Number.isInteger(homeScore) || !Number.isInteger(awayScore)) {
+      summary.unmatched++;
+      continue;
+    }
+
+    const actual = evaluatePredictionOutcome(
+      String(p.market_key ?? ""),
+      String(p.selection ?? ""),
+      p.line == null ? null : Number(p.line),
+      homeScore,
+      awayScore,
+    );
+    if (actual === null) {
+      summary.unsupported++;
+      continue;
+    }
+
+    const outcome = actual === 1;
+    const { error: updateError } = await supabase
+      .from("quant_prediction_log")
+      .update({
+        result_status: outcome ? "won" : "lost",
+        settled_at: new Date().toISOString(),
+        home_score: homeScore,
+        away_score: awayScore,
+        actual_value: actual,
+        outcome,
+        settlement_source: String(fixture.fuente ?? "football-data.org"),
+        settlement_payload: {
+          provider: String(fixture.fuente ?? "football-data.org"),
+          match_id: fixture.id,
+          competition_id: fixture.competid_id,
+          kickoff_utc: fixture.fecha_utc,
+          home_team_verified: fixture.home_name,
+          away_team_verified: fixture.away_name,
+          status: fixture.estado,
+        },
+      })
+      .eq("id", p.id)
+      .eq("result_status", "pending");
+    if (updateError) throw new Error("Error liquidando pronóstico " + p.id + ": " + updateError.message);
+    summary.settled++;
+    if (outcome) summary.won++;
+    else summary.lost++;
+  }
+  return summary;
+}
+
+
+async function handleUpdate(update: any) {
+  const msg = update.message;
+  const chatId = msg?.chat?.id;
+  const text = msg?.text?.trim();
+  if (!chatId || !text) return;
+
+  // ================================================================
+  const isTrackerOwner =
+    TELEGRAM_CHAT_ID.length > 0 &&
+    msg?.chat?.type === "private" &&
+    String(chatId) === TELEGRAM_CHAT_ID &&
+    String(msg?.from?.id ?? "") === TELEGRAM_CHAT_ID;
+
+  const trackerCommands = new Set([
+    "📊 HISTORIAL",
+    "➕ Registrar apuesta",
+    "📋 Mis apuestas",
+    "💰 Bankroll",
+    "📈 Resumen",
+    "💸 Liquidar",
+    "✏️ Editar cuota",
+    "🗑️ Borrar apuesta",
+  ]);
+
+  if (!isTrackerOwner && (
+    trackerCommands.has(text) ||
+    (/^(Editar cuota|Borrar apuesta|CONFIRMAR BORRADO) [0-9a-f-]{36}$/i.test(text))
+  )) {
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "⛔ El historial de apuestas es de uso privado."
+    });
+    return;
+  }
+
+  if (isTrackerOwner) {
+    try {
+  // BETTING TRACKER — Registro, historial, bankroll y liquidaciones
+  // ================================================================
+
+  if (text === "↩️ Menú" || text.startsWith("/start")) {
+    await deleteBettingSession(String(chatId));
+  }
+
+  if (text === "📊 HISTORIAL") {
+    await deleteBettingSession(String(chatId));
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "📊 <b>HISTORIAL DE APUESTAS</b>\nSelecciona una operación:",
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [
+          ["➕ Registrar apuesta"],
+          ["📋 Mis apuestas", "💰 Bankroll"],
+          ["📈 Resumen", "💸 Liquidar"],
+          ["✏️ Editar cuota"],
+          ["🗑️ Borrar apuesta"],
+          ["↩️ Menú"],
+        ],
+        resize_keyboard: true,
+      },
+    });
+    return;
+  }
+
+  if (text === "➕ Registrar apuesta") {
+    await startBetFixturePicker(chatId);
+    return;
+  }
+
+  if (text === "📋 Mis apuestas") {
+    await deleteBettingSession(String(chatId));
+    const { data: bets, error } = await supabase
+      .from("bets")
+      .select("event_name, competition, market, selection, odds, stake_cents, status, payout_cents, created_at, source_type")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (error) throw error;
+
+    if (!bets?.length) {
+      await telegram("sendMessage", { chat_id: chatId, text: "Todavía no hay apuestas registradas." });
+      return;
+    }
+
+    const lines = bets.map((bet: any) => {
+      const status = ({
+        pending: "⏳ Pendiente",
+        won: "🟢 Ganada",
+        lost: "🔴 Perdida",
+        void: "⚪ Anulada",
+        cash_out: "💸 Cash out",
+      } as Record<string, string>)[bet.status] ?? bet.status;
+
+      return [
+        ...(bet.source_type === "surebet" ? ["🗃️ <b>HISTÓRICO SUREBET</b> · Solo consulta"] : []),
+        `<b>${esc(bet.event_name)}</b>`,
+        `${esc(bet.competition ?? "Sin competición")} · ${esc(bet.market)} · ${esc(bet.selection)}`,
+        `Cuota ${Number(bet.odds).toFixed(2)} · Stake ${(bet.stake_cents / 100).toFixed(2)} €`,
+        `${status}${bet.payout_cents !== null ? ` · Cobro ${(bet.payout_cents / 100).toFixed(2)} €` : ""}`,
+      ].join("\n");
+    });
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "📋 <b>ÚLTIMAS 10 APUESTAS</b>\n\n" + lines.join("\n\n"),
+      parse_mode: "HTML",
+    });
+    return;
+  }
+
+  if (text === "✏️ Editar cuota") {
+    await deleteBettingSession(String(chatId));
+
+    const { data: pendingBets, error } = await supabase
+      .from("bets")
+      .select("id, event_name, market, selection, odds")
+      .eq("status", "pending")
+      .neq("source_type", "surebet")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (error) throw error;
+
+    if (!pendingBets?.length) {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "No tienes apuestas pendientes para editar.",
+      });
+      return;
+    }
+
+    const keyboard = pendingBets.map((bet: any) => [{
+      text: `Editar cuota ${bet.id}`,
+    }]);
+    keyboard.push([{ text: "↩️ Menú" }]);
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "✏️ <b>Selecciona la apuesta cuya cuota quieres cambiar:</b>",
+      parse_mode: "HTML",
+      reply_markup: { keyboard, resize_keyboard: true },
+    });
+    return;
+  }
+
+  const editOddsSelection = text.match(/^Editar cuota ([0-9a-f-]{36})$/i);
+  if (editOddsSelection) {
+    const { data: bet, error } = await supabase
+      .from("bets")
+      .select("id, event_name, market, selection, odds, status, source_type")
+      .eq("id", editOddsSelection[1])
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!bet || bet.status !== "pending" || bet.source_type === "surebet") {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "La apuesta no existe, está protegida como histórico o ya no está pendiente.",
+      });
+      return;
+    }
+
+    await saveBettingSession(String(chatId), {
+      step: "edit_odds",
+      data: { betId: bet.id },
+    });
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text:
+        `Partido: ${esc(bet.event_name)}\n` +
+        `Mercado: ${esc(bet.market)} · ${esc(bet.selection)}\n` +
+        `Cuota actual: ${Number(bet.odds).toFixed(2)}\n\n` +
+        "📈 Introduce la nueva cuota decimal:",
+      reply_markup: { force_reply: true },
+    });
+    return;
+  }
+
+  // BORRADO SEGURO DE APUESTAS PENDIENTES
+  if (text === "🗑️ Borrar apuesta") {
+    await deleteBettingSession(String(chatId));
+
+    const { data: pendingBets, error } = await supabase
+      .from("bets")
+      .select("id, event_name, market, selection, odds, stake_cents, source_type")
+      .eq("status", "pending")
+      // Excluir registros históricos de Surebet para proteger su liquidación antigua.
+      .neq("source_type", "surebet")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (error) throw error;
+
+    if (!pendingBets?.length) {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "No tienes apuestas pendientes que se puedan borrar.",
+      });
+      return;
+    }
+
+    const keyboard = pendingBets.map((bet: any) => [{
+      text: `Borrar apuesta ${bet.id}`,
+    }]);
+    keyboard.push([{ text: "↩️ Menú" }]);
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "🗑️ <b>Selecciona la apuesta pendiente que quieres borrar:</b>",
+      parse_mode: "HTML",
+      reply_markup: { keyboard, resize_keyboard: true },
+    });
+    return;
+  }
+
+  const deleteBetSelection = text.match(/^Borrar apuesta ([0-9a-f-]{36})$/i);
+  if (deleteBetSelection) {
+    const { data: bet, error } = await supabase
+      .from("bets")
+      .select("id, event_name, market, selection, odds, stake_cents, status, source_type")
+      .eq("id", deleteBetSelection[1])
+      .maybeSingle();
+
+    if (error) throw error;
+
+    // Los registros antiguos de Surebet siguen protegidos frente a borrado desde el tracker.
+    if (!bet || bet.status !== "pending" || bet.source_type === "surebet") {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "La apuesta no existe, ya no está pendiente o está protegida.",
+      });
+      return;
+    }
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text:
+        "⚠️ <b>CONFIRMAR BORRADO</b>\n\n" +
+        `Partido: ${esc(bet.event_name)}\n` +
+        `Mercado: ${esc(bet.market)} · ${esc(bet.selection)}\n` +
+        `Importe que se devolverá: ${(Number(bet.stake_cents) / 100).toFixed(2)} €\n\n` +
+        "Esta acción no se puede deshacer.",
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [
+          [{ text: `CONFIRMAR BORRADO ${bet.id}` }],
+          [{ text: "Cancelar borrado" }],
+        ],
+        resize_keyboard: true,
+      },
+    });
+    return;
+  }
+
+  if (text === "Cancelar borrado") {
+    await deleteBettingSession(String(chatId));
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "Borrado cancelado. La apuesta sigue intacta.",
+      reply_markup: {
+        keyboard: [["📊 HISTORIAL"], ["↩️ Menú"]],
+        resize_keyboard: true,
+      },
+    });
+    return;
+  }
+
+  const confirmDeleteBet = text.match(/^CONFIRMAR BORRADO ([0-9a-f-]{36})$/i);
+  if (confirmDeleteBet) {
+    const { data, error } = await supabase.rpc("delete_pending_bet", {
+      p_bet_id: confirmDeleteBet[1],
+    });
+
+    if (error) throw error;
+
+    if (!data?.success) {
+      throw new Error("El borrado no ha sido confirmado por la base de datos.");
+    }
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text:
+        "✅ <b>Apuesta borrada correctamente.</b>\n" +
+        `Se han devuelto ${(Number(data.reversed_stake_cents) / 100).toFixed(2)} € al bankroll.`,
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [["📊 HISTORIAL"], ["↩️ Menú"]],
+        resize_keyboard: true,
+      },
+    });
+    return;
+  }
+  if (text === "💰 Bankroll") {
+    await deleteBettingSession(String(chatId));
+
+    const { data: accounts, error: accountError } = await supabase
+      .from("betting_accounts")
+      .select("id, bookmaker")
+      .order("bookmaker");
+
+    if (accountError) throw accountError;
+
+    const movements: any[] = [];
+
+    for (let offset = 0; ; offset += 1000) {
+      const { data: page, error: movementError } = await supabase
+        .from("bankroll_movements")
+        .select("account_id, amount_cents")
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + 999);
+
+      if (movementError) throw movementError;
+
+      const rows = page ?? [];
+      movements.push(...rows);
+
+      if (rows.length < 1000) break;
+    }
+
+    let total = 0;
+    const lines = (accounts ?? []).map((account: any) => {
+      const balance = (movements ?? [])
+        .filter((movement: any) => movement.account_id === account.id)
+        .reduce((sum: number, movement: any) => sum + Number(movement.amount_cents), 0);
+
+      total += balance;
+      return `• <b>${esc(account.bookmaker)}</b>: ${(balance / 100).toFixed(2)} €`;
+    });
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "💰 <b>BANKROLL POR CASA</b>\n\n" +
+        (lines.length ? lines.join("\n") : "No hay cuentas configuradas.") +
+        `\n\n<b>Total:</b> ${(total / 100).toFixed(2)} €`,
+      parse_mode: "HTML",
+    });
+    return;
+  }
+
+  if (text === "📈 Resumen") {
+    await deleteBettingSession(String(chatId));
+
+    const all: any[] = [];
+
+    for (let offset = 0; ; offset += 1000) {
+      const { data: page, error } = await supabase
+        .from("bets")
+        .select("id, created_at, status, stake_cents, payout_cents")
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + 999);
+
+      if (error) throw error;
+
+      const rows = page ?? [];
+      all.push(...rows);
+
+      if (rows.length < 1000) break;
+    }
+
+    const pending = all.filter((bet: any) => bet.status === "pending");
+    const settled = all.filter((bet: any) =>
+      ["won", "lost", "cash_out"].includes(bet.status)
+    );
+    const won = all.filter((bet: any) => bet.status === "won");
+    const lost = all.filter((bet: any) => bet.status === "lost");
+
+    const realized = settled.reduce(
+      (sum: number, bet: any) =>
+        sum + Number(bet.payout_cents ?? 0) - Number(bet.stake_cents),
+      0,
+    );
+
+    const settledStake = settled.reduce(
+      (sum: number, bet: any) => sum + Number(bet.stake_cents),
+      0,
+    );
+    const roi = settledStake > 0 ? (realized / settledStake) * 100 : 0;
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text:
+        "📈 <b>RESUMEN DE RENTABILIDAD</b>\n\n" +
+        `Apuestas registradas: <b>${all.length}</b>\n` +
+        `Pendientes: <b>${pending.length}</b>\n` +
+        `Ganadas: <b>${won.length}</b>\n` +
+        `Perdidas: <b>${lost.length}</b>\n\n` +
+        `Beneficio neto realizado: <b>${(realized / 100).toFixed(2)} €</b>\n` +
+        `ROI realizado: <b>${roi.toFixed(2)} %</b>`,
+      parse_mode: "HTML",
+    });
+    return;
+  }
+
+  if (text === "💸 Liquidar") {
+    await deleteBettingSession(String(chatId));
+
+    const { data: pendingBets, error } = await supabase
+      .from("bets")
+      .select("id, event_name, market, selection, odds, stake_cents")
+      .eq("status", "pending")
+      .neq("source_type", "surebet")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (error) throw error;
+
+    if (!pendingBets?.length) {
+      await telegram("sendMessage", { chat_id: chatId, text: "No tienes apuestas pendientes de liquidar." });
+      return;
+    }
+
+    const keyboard = pendingBets.map((bet: any) => [
+      { text: `Liquidar ${bet.id}` },
+    ]);
+
+    keyboard.push([{ text: "↩️ Menú" }]);
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "💸 <b>Selecciona la apuesta que quieres liquidar:</b>",
+      parse_mode: "HTML",
+      reply_markup: { keyboard, resize_keyboard: true },
+    });
+    return;
+  }
+
+  const selectedBet = text.match(/^Liquidar ([0-9a-f-]{36})$/i);
+  if (selectedBet) {
+    const { data: bet, error } = await supabase
+      .from("bets")
+      .select("id, event_name, stake_cents, status, source_type")
+      .eq("id", selectedBet[1])
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!bet || bet.status !== "pending" || bet.source_type === "surebet") {
+      await telegram("sendMessage", { chat_id: chatId, text: "La apuesta no existe, está protegida como histórico o ya está liquidada." });
+      return;
+    }
+
+    await saveBettingSession(String(chatId), {
+      step: "settle_result",
+      data: { betId: bet.id },
+    });
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: `Resultado de <b>${esc(bet.event_name)}</b>:`,
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [
+          ["🟢 Ganada", "🔴 Perdida"],
+          ["⚪ Anulada", "💸 Cash out"],
+          ["↩️ Menú"],
+        ],
+        resize_keyboard: true,
+      },
+    });
+    return;
+  }
+
+  const bettingSession = await getBettingSession(String(chatId));
+  const sessionData = (bettingSession?.data ?? {}) as Record<string, any>;
+
+  if (bettingSession?.step === "edit_odds") {
+    const odds = Number(text.replace(",", "."));
+
+    if (!Number.isFinite(odds) || odds <= 1 || odds > 10000) {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "Cuota no válida. Introduce un número superior a 1, por ejemplo 1.85.",
+      });
+      return;
+    }
+
+    const betId = String(sessionData.betId ?? "");
+    if (!/^[0-9a-f-]{36}$/i.test(betId)) {
+      await deleteBettingSession(String(chatId));
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "La sesión de edición no es válida. Vuelve a seleccionar la apuesta.",
+      });
+      return;
+    }
+
+    const { data: updatedBet, error: updateError } = await supabase
+      .from("bets")
+      .update({ odds })
+      .eq("id", betId)
+      .eq("status", "pending")
+      .neq("source_type", "surebet")
+      .select("id")
+      .maybeSingle();
+
+    if (updateError) throw updateError;
+
+    if (!updatedBet) {
+      await deleteBettingSession(String(chatId));
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "No se ha actualizado: la apuesta ya no existe o ha dejado de estar pendiente.",
+      });
+      return;
+    }
+
+    await deleteBettingSession(String(chatId));
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: `✅ Cuota actualizada correctamente: <b>${odds.toFixed(2)}</b>. El stake y el bankroll no se han modificado.`,
+      parse_mode: "HTML",
+    });
+    return;
+  }
+
+  if (/^📅 \d{4}-\d{2}-\d{2}$/.test(text)) {
+    const selectedDate = text.slice(3);
+    const currentSession = await getBettingSession(String(chatId));
+    const dates = (currentSession?.data?.availableDates ?? []) as string[];
+
+    if (!dates.includes(selectedDate)) {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "Esa fecha ya no está disponible. Vuelve a iniciar el registro.",
+      });
+      return;
+    }
+
+    await showBetFixturesForDate(chatId, selectedDate, dates);
+    return;
+  }
+
+  if (text === "✍️ Partido manual") {
+    await saveBettingSession(String(chatId), {
+      step: "match",
+      data: {},
+    });
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "⚽ Escribe el partido (ejemplo: Real Madrid - Sevilla):",
+      reply_markup: { force_reply: true },
+    });
+    return;
+  }
+
+  const fixtureButton = text.match(/^⚽ .* #(\d+)$/);
+  if (fixtureButton) {
+    if (bettingSession?.step !== "fixture_match") {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "⚠️ Esta selección ha caducado. Pulsa Registrar apuesta para empezar de nuevo.",
+      });
+      return;
+    }
+    const fixtureId = fixtureButton[1];
+    const { data: fixture, error: fixtureError } = await supabase
+      .from("partidos")
+      .select("id,fecha_utc,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)")
+      .eq("id", fixtureId)
+      .single();
+
+    const selectedDate = String(sessionData?.date ?? "");
+    const availableDates = Array.isArray(sessionData?.availableDates)
+      ? sessionData.availableDates.map(String)
+      : [];
+    const fixtureDate = fixture?.fecha_utc
+      ? madridDate(new Date(fixture.fecha_utc))
+      : "";
+
+    if (
+      fixtureError ||
+      !fixture ||
+      !availableDates.includes(selectedDate) ||
+      fixtureDate !== selectedDate
+    ) {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "No se ha podido recuperar ese partido. Vuelve a elegirlo.",
+      });
+      return;
+    }
+
+    const home = (fixture.equipo_local as any)?.[0]?.nombre ?? (fixture.equipo_local as any)?.nombre ?? "Local";
+    const away = (fixture.equipo_visitante as any)?.[0]?.nombre ?? (fixture.equipo_visitante as any)?.nombre ?? "Visitante";
+    const competition = (fixture.competicion as any)?.[0]?.nombre ?? (fixture.competicion as any)?.nombre ?? "Competición sin nombre";
+
+    await saveBettingSession(String(chatId), {
+      step: "market",
+      data: {
+        match: `${home} - ${away}`,
+        competition,
+        fixture_id: fixture.id,
+      },
+    });
+
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: `✅ ${home} - ${away}\n🏆 ${competition}\n\n📊 Escribe el mercado (ejemplo: Ganador, Más de 2.5 goles, Córners):`,
+      reply_markup: { force_reply: true },
+    });
+    return;
+  }
+  if (bettingSession?.step === "match") {
+    if (text.length < 3) {
+      await telegram("sendMessage", { chat_id: chatId, text: "Escribe un nombre de partido válido." });
+      return;
+    }
+    await saveBettingSession(String(chatId), { step: "competition", data: { match: text } });
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "🏆 Escribe la competición:",
+      reply_markup: { force_reply: true },
+    });
+    return;
+  }
+
+  if (bettingSession?.step === "competition") {
+    await saveBettingSession(String(chatId), {
+      step: "market",
+      data: { ...sessionData, competition: text },
+    });
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "📊 Escribe el mercado (ejemplo: Ganador, Más de 2.5 goles, Córners):",
+      reply_markup: { force_reply: true },
+    });
+    return;
+  }
+
+  if (bettingSession?.step === "market") {
+    await saveBettingSession(String(chatId), {
+      step: "selection",
+      data: { ...sessionData, market: text },
+    });
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "🎯 Escribe la selección (ejemplo: Real Madrid, Más de 2.5):",
+      reply_markup: { force_reply: true },
+    });
+    return;
+  }
+
+  if (bettingSession?.step === "selection") {
+    await saveBettingSession(String(chatId), {
+      step: "odds",
+      data: { ...sessionData, selection: text },
+    });
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "📈 Introduce la cuota decimal (ejemplo: 1.85):",
+      reply_markup: { force_reply: true },
+    });
+    return;
+  }
+
+  if (bettingSession?.step === "odds") {
+    const odds = Number(text.replace(",", "."));
+    if (!Number.isFinite(odds) || odds <= 1 || odds > 10000) {
+      await telegram("sendMessage", { chat_id: chatId, text: "Cuota no válida. Introduce un número superior a 1, por ejemplo 1.85." });
+      return;
+    }
+    await saveBettingSession(String(chatId), {
+      step: "bookmaker",
+      data: { ...sessionData, odds },
+    });
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "🏦 Selecciona la casa de apuestas:",
+      reply_markup: {
+        keyboard: [
+          ["Bet365", "Betfair"],
+          ["DAZN Bet"],
+          ["↩️ Menú"],
+        ],
+        resize_keyboard: true,
+      },
+    });
+    return;
+  }
+
+  if (bettingSession?.step === "bookmaker") {
+    const allowedBookmakers = ["Bet365", "Betfair", "DAZN Bet"];
+    if (!allowedBookmakers.includes(text)) {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "Selecciona una de las casas disponibles: Bet365, Betfair o DAZN Bet.",
+      });
+      return;
+    }
+
+    await saveBettingSession(String(chatId), {
+      step: "stake",
+      data: { ...sessionData, bookmaker: text },
+    });
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: "💶 Introduce el importe apostado en euros (ejemplo: 10 o 2,50):",
+      reply_markup: { force_reply: true },
+    });
+    return;
+  }
+
+  if (bettingSession?.step === "stake") {
+    const stake = Number(text.replace(",", "."));
+    const stakeCents = Math.round(stake * 100);
+
+    if (!Number.isFinite(stake) || stake <= 0 || !Number.isSafeInteger(stakeCents) || stakeCents <= 0) {
+      await telegram("sendMessage", { chat_id: chatId, text: "Importe no válido. Introduce una cantidad positiva, por ejemplo 10 o 2,50." });
+      return;
+    }
+
+    if (!Number.isSafeInteger(update?.update_id)) {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "No se ha podido identificar de forma segura este mensaje. Vuelve a enviar el importe.",
+      });
+      return;
+    }
+
+    const { data: account, error: accountError } = await supabase
+      .from("betting_accounts")
+      .select("id")
+      .eq("bookmaker", sessionData.bookmaker)
+      .single();
+
+    if (accountError || !account) {
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "No se encuentra la cuenta de esa casa. Comprueba que esté configurada en el bankroll.",
+      });
+      return;
+    }
+
+    const idempotencyKey = `manual:${chatId}:${update.update_id}`;
+
+    const betPayload = {
+      account_id: account.id,
+      source_type: "manual",
+      event_name: sessionData.match,
+      competition: sessionData.competition,
+      market: sessionData.market,
+      selection: sessionData.selection,
+      odds: sessionData.odds,
+      stake_cents: stakeCents,
+      status: "pending",
+      payout_cents: null,
+      idempotency_key: idempotencyKey,
+    };
+
+    const { data: insertedBet, error: betError } = await supabase
+      .from("bets")
+      .upsert(betPayload, {
+        onConflict: "idempotency_key",
+        ignoreDuplicates: true,
+      })
+      .select("id")
+      .maybeSingle();
+
+    if (betError) {
+      console.error("betting_tracker_insert_bet_failed", betError);
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "No se pudo guardar la apuesta. No se ha confirmado el movimiento de bankroll.",
+      });
+      return;
+    }
+
+    let betId = insertedBet?.id;
+
+    if (!betId) {
+      const { data: existingBet, error: existingBetError } = await supabase
+        .from("bets")
+        .select("id, account_id, event_name, competition, market, selection, odds, stake_cents, source_type")
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+
+      if (existingBetError || !existingBet) {
+        console.error("betting_tracker_idempotency_lookup_failed", existingBetError);
+        await telegram("sendMessage", {
+          chat_id: chatId,
+          text: "No se ha podido verificar si la apuesta ya estaba registrada. Comprueba el historial antes de repetirla.",
+        });
+        return;
+      }
+
+      const sameBet =
+        String(existingBet.account_id) === String(account.id) &&
+        existingBet.source_type === "manual" &&
+        existingBet.event_name === sessionData.match &&
+        existingBet.competition === sessionData.competition &&
+        existingBet.market === sessionData.market &&
+        existingBet.selection === sessionData.selection &&
+        Number(existingBet.odds) === Number(sessionData.odds) &&
+        Number(existingBet.stake_cents) === stakeCents;
+
+      if (!sameBet) {
+        await telegram("sendMessage", {
+          chat_id: chatId,
+          text: "⚠️ La clave de este mensaje ya está asociada a otra apuesta. Requiere revisión.",
+        });
+        return;
+      }
+
+      betId = existingBet.id;
+    }
+
+    try {
+      await ensureBankrollMovement({
+        account_id: account.id,
+        bet_id: betId,
+        movement_type: "stake",
+        amount_cents: -stakeCents,
+        description: `Apuesta: ${sessionData.match}`,
+        idempotency_key: `stake:${betId}`,
+      });
+    } catch (movementError) {
+      console.error("betting_tracker_stake_movement_failed", movementError);
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: `⚠️ La apuesta ${betId} existe, pero no se ha podido verificar su movimiento de bankroll. No la repitas; requiere revisión.`,
+      });
+      return;
+    }
+
+    await deleteBettingSession(String(chatId));
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text:
+        "✅ <b>APUESTA REGISTRADA</b>\n\n" +
+        `Partido: ${esc(sessionData.match)}\n` +
+        `Competición: ${esc(sessionData.competition)}\n` +
+        `Mercado: ${esc(sessionData.market)}\n` +
+        `Selección: ${esc(sessionData.selection)}\n` +
+        `Cuota: ${Number(sessionData.odds).toFixed(2)}\n` +
+        `Casa: ${esc(sessionData.bookmaker)}\n` +
+        `Stake: ${(stakeCents / 100).toFixed(2)} €\n` +
+        "Estado: ⏳ Pendiente",
+      parse_mode: "HTML",
+    });
+    return;
+  }
+  if (bettingSession?.step === "settle_result") {
+    const resultMap: Record<string, string> = {
+      "🟢 Ganada": "won",
+      "🔴 Perdida": "lost",
+      "⚪ Anulada": "void",
+      "💸 Cash out": "cash_out",
+    };
+    const result = resultMap[text];
+
+    if (!result) {
+      await telegram("sendMessage", { chat_id: chatId, text: "Selecciona Ganada, Perdida, Anulada o Cash out." });
+      return;
+    }
+
+    const { data: bet, error } = await supabase
+      .from("bets")
+      .select("id, account_id, stake_cents, status, source_type")
+      .eq("id", sessionData.betId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!bet || bet.status !== "pending" || bet.source_type === "surebet") {
+      await deleteBettingSession(String(chatId));
+      await telegram("sendMessage", { chat_id: chatId, text: "La apuesta no existe, está protegida como histórico o ya no está pendiente." });
+      return;
+    }
+
+    if (result === "won" || result === "cash_out") {
+      await saveBettingSession(String(chatId), {
+        step: "settle_payout",
+        data: { betId: bet.id, result },
+      });
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "💶 Introduce el importe total realmente cobrado en euros (no el beneficio):",
+        reply_markup: { force_reply: true },
+      });
+      return;
+    }
+
+    const payoutCents = result === "void" ? Number(bet.stake_cents) : 0;
+
+    const { data: updatedBet, error: updateError } = await supabase
+      .from("bets")
+      .update({
+        status: result,
+        payout_cents: payoutCents,
+        settled_at: new Date().toISOString(),
+      })
+      .eq("id", bet.id)
+      .eq("status", "pending")
+      .neq("source_type", "surebet")
+      .select("id")
+      .maybeSingle();
+
+    if (updateError) throw updateError;
+
+    if (!updatedBet) {
+      await deleteBettingSession(String(chatId));
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "La apuesta ha cambiado de estado en otra operación. No se ha añadido ningún movimiento.",
+      });
+      return;
+    }
+
+    if (payoutCents > 0) {
+      try {
+        await ensureBankrollMovement({
+          account_id: bet.account_id,
+          bet_id: bet.id,
+          movement_type: "payout",
+          amount_cents: payoutCents,
+          description: `Liquidación: ${result}`,
+          idempotency_key: `payout:${bet.id}`,
+        });
+      } catch (payoutError) {
+        console.error("betting_tracker_payout_movement_failed", payoutError);
+
+        const { data: existingMovement, error: verifyError } = await supabase
+          .from("bankroll_movements")
+          .select("id")
+          .eq("idempotency_key", `payout:${bet.id}`)
+          .maybeSingle();
+
+        if (!verifyError && !existingMovement) {
+          const { data: rollback, error: rollbackError } = await supabase
+            .from("bets")
+            .update({
+              status: "pending",
+              payout_cents: null,
+              settled_at: null,
+            })
+            .eq("id", bet.id)
+            .eq("status", result)
+            .eq("payout_cents", payoutCents)
+            .select("id")
+            .maybeSingle();
+
+          if (rollbackError || !rollback) {
+            console.error("betting_tracker_settlement_rollback_failed", rollbackError);
+            await telegram("sendMessage", {
+              chat_id: chatId,
+              text: `⚠️ No se pudo registrar el cobro ni verificar la reversión de la apuesta ${bet.id}. Requiere revisión manual.`,
+            });
+            return;
+          }
+
+          await telegram("sendMessage", {
+            chat_id: chatId,
+            text: "No se pudo registrar el movimiento de cobro. La apuesta se ha devuelto a pendiente.",
+          });
+          return;
+        }
+
+        await telegram("sendMessage", {
+          chat_id: chatId,
+          text: `⚠️ No se ha podido verificar el movimiento de cobro de la apuesta ${bet.id}. No se ha revertido automáticamente para evitar descuadrar el bankroll.`,
+        });
+        return;
+      }
+    }
+
+    await deleteBettingSession(String(chatId));
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text: `✅ Apuesta liquidada: ${result === "lost" ? "Perdida" : "Anulada"}.`,
+    });
+    return;
+  }
+  if (bettingSession?.step === "settle_payout") {
+    if (sessionData.result !== "won" && sessionData.result !== "cash_out") {
+      await deleteBettingSession(String(chatId));
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "La sesión de liquidación no es válida. Vuelve a iniciar la liquidación.",
+      });
+      return;
+    }
+
+    const payout = Number(text.replace(",", "."));
+    const payoutCents = Math.round(payout * 100);
+
+    if (!Number.isFinite(payout) || payout < 0 || !Number.isSafeInteger(payoutCents)) {
+      await telegram("sendMessage", { chat_id: chatId, text: "Cobro no válido. Introduce el importe total cobrado en euros." });
+      return;
+    }
+
+    const { data: bet, error } = await supabase
+      .from("bets")
+      .select("id, account_id, status, stake_cents, source_type")
+      .eq("id", sessionData.betId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!bet || bet.status !== "pending" || bet.source_type === "surebet") {
+      await deleteBettingSession(String(chatId));
+      await telegram("sendMessage", { chat_id: chatId, text: "La apuesta no existe, está protegida como histórico o ya no está pendiente." });
+      return;
+    }
+
+    const { data: updatedBet, error: updateError } = await supabase
+      .from("bets")
+      .update({
+        status: sessionData.result,
+        payout_cents: payoutCents,
+        settled_at: new Date().toISOString(),
+      })
+      .eq("id", bet.id)
+      .eq("status", "pending")
+      .neq("source_type", "surebet")
+      .select("id")
+      .maybeSingle();
+
+    if (updateError) throw updateError;
+
+    if (!updatedBet) {
+      await deleteBettingSession(String(chatId));
+      await telegram("sendMessage", {
+        chat_id: chatId,
+        text: "La apuesta ha cambiado de estado en otra operación. No se ha añadido ningún movimiento.",
+      });
+      return;
+    }
+
+    if (payoutCents > 0) {
+      try {
+        await ensureBankrollMovement({
+          account_id: bet.account_id,
+          bet_id: bet.id,
+          movement_type: "payout",
+          amount_cents: payoutCents,
+          description: `Liquidación: ${sessionData.result}`,
+          idempotency_key: `payout:${bet.id}`,
+        });
+      } catch (payoutError) {
+        console.error("betting_tracker_payout_movement_failed", payoutError);
+
+        const { data: existingMovement, error: verifyError } = await supabase
+          .from("bankroll_movements")
+          .select("id")
+          .eq("idempotency_key", `payout:${bet.id}`)
+          .maybeSingle();
+
+        if (!verifyError && !existingMovement) {
+          const { data: rollback, error: rollbackError } = await supabase
+            .from("bets")
+            .update({
+              status: "pending",
+              payout_cents: null,
+              settled_at: null,
+            })
+            .eq("id", bet.id)
+            .eq("status", sessionData.result)
+            .eq("payout_cents", payoutCents)
+            .select("id")
+            .maybeSingle();
+
+          if (rollbackError || !rollback) {
+            console.error("betting_tracker_settlement_rollback_failed", rollbackError);
+            await telegram("sendMessage", {
+              chat_id: chatId,
+              text: `⚠️ No se pudo registrar el cobro ni verificar la reversión de la apuesta ${bet.id}. Requiere revisión manual.`,
+            });
+            return;
+          }
+
+          await telegram("sendMessage", {
+            chat_id: chatId,
+            text: "No se pudo registrar el movimiento de cobro. La apuesta se ha devuelto a pendiente.",
+          });
+          return;
+        }
+
+        await telegram("sendMessage", {
+          chat_id: chatId,
+          text: `⚠️ No se ha podido verificar el movimiento de cobro de la apuesta ${bet.id}. No se ha revertido automáticamente para evitar descuadrar el bankroll.`,
+        });
+        return;
+      }
+    }
+
+    const net = payoutCents - Number(bet.stake_cents);
+    await deleteBettingSession(String(chatId));
+    await telegram("sendMessage", {
+      chat_id: chatId,
+      text:
+        "✅ <b>APUESTA LIQUIDADA</b>\n\n" +
+        `Cobro real: ${(payoutCents / 100).toFixed(2)} €\n` +
+        `Estado: ${sessionData.result === "won" ? "Ganada" : "Cash out"}\n` +
+        `Beneficio neto: ${(net / 100).toFixed(2)} €`,
+      parse_mode: "HTML",
+    });
+    return;
+  }
+    } catch (trackerError) {
+      console.error(
+        "betting_tracker_update_failed",
+        trackerError instanceof Error
+          ? trackerError.stack ?? trackerError.message
+          : String(trackerError)
+      );
+
+      try {
+        await telegram("sendMessage", {
+          chat_id: chatId,
+          text: "⚠️ No he podido completar o confirmar la operación. Antes de repetirla, revisa el Historial y el Bankroll.",
+        });
+      } catch (notificationError) {
+        console.error(
+          "betting_tracker_error_notification_failed",
+          notificationError instanceof Error
+            ? notificationError.message
+            : String(notificationError)
+        );
+      }
+    }
+  }
+
+  if (text === "↩️ Menú") {
+    await telegram("sendMessage", { chat_id: chatId, text: "Menú principal:", reply_markup: KEYBOARD });
+    return;
+  }
+  if (text.startsWith("/start")) {
+    await telegram("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: "⚽ <b>Bot Quant · CANCHA</b>\nUn único modelo, calendario y registro de apuestas.", reply_markup: KEYBOARD });
+    return;
+  }
+  if (text === "/cancha" || text === "⚽ CANCHA" || text === "⚽ Cancha") { await cancha(chatId, "menu"); return; }
+  if (text === "/top3" || text === "🏆 TOP 3 CANCHA" || text === "🏆 Top 3 Cancha") { await cancha(chatId, "top3"); return; }
+  if (text === "📅 RESUMEN DIARIO CANCHA") { await cancha(chatId, "daily"); return; }
+  if (text === "🎯 APUESTAS TOP CANCHA") { await cancha(chatId, "bettingtop"); return; }
+  if (text === "📅 PRÓXIMOS PARTIDOS") { await sendUpcomingFixtures(chatId); return; }
+  if (text === "🔎 BUSCAR PARTIDO" || text === "🔎 Buscar partido") {
+    await telegram("sendMessage", { chat_id: chatId, text: "Escribe /buscar seguido del nombre de un equipo. Ejemplo: /buscar Real Madrid" });
+    return;
+  }
+  if (text.startsWith("/buscar")) {
+    const term = text.replace(/^\/buscar\s*/i, "").trim();
+    if (!term) { await telegram("sendMessage", { chat_id: chatId, text: "Indica el equipo. Ejemplo: /buscar Real Madrid" }); return; }
+    await cancha(chatId, "search", term);
+    return;
+  }
+}
+
+async function sendUpcomingFixtures(chatId: number | string): Promise<void> {
+  const now = new Date();
+  const window = getCanchaWindow(now);
+  const rows: any[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabase.from("partidos")
+      .select("fecha_utc,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre),competicion:competiciones!partidos_competid_id_fkey(nombre)")
+      .gte("fecha_utc", window.start).lt("fecha_utc", window.end)
+      .in("estado", ["SCHEDULED", "POSTPONED"])
+      .order("fecha_utc", { ascending: true }).range(offset, offset + 999);
+    if (error) throw new Error("Calendario: " + error.message);
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+  if (!rows.length) {
+    await telegram("sendMessage", { chat_id: chatId, text: buildNoUpcomingCanchaMessage() });
+    return;
+  }
+  for (const message of formatUpcomingFixturesMessages(rows, now, CANCHA_LOOKAHEAD_DAYS)) {
+    await telegram("sendMessage", { chat_id: chatId, parse_mode: "HTML", text: message });
+  }
+}
+
+Deno.serve(async (req) => {
+  if (req.method !== "POST") return new Response("OK", { status: 200 });
+  const cronSecretHeader = req.headers.get("x-cron-secret");
+  if (CRON_SECRET && cronSecretHeader === CRON_SECRET) {
+    try {
+      const settlement = await settleModelPredictions();
+      return new Response(JSON.stringify({ ok: true, source: "cron", settlement }), { headers: { "Content-Type": "application/json" } });
+    } catch (error) {
+      console.error("legacy_prediction_settlement_failed", error instanceof Error ? error.message : String(error));
+      return new Response(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }), { status: 500 });
+    }
+  }
+  const secretHeader = req.headers.get("x-telegram-bot-api-secret-token");
+  if (TELEGRAM_WEBHOOK_SECRET && secretHeader !== TELEGRAM_WEBHOOK_SECRET) return new Response("Unauthorized", { status: 401 });
+  let update: any;
+  try { update = await req.json(); } catch { return new Response("Bad Request", { status: 400 }); }
+  try { await handleUpdate(update); }
+  catch (err) { console.error("telegram_update_failed", err instanceof Error ? err.stack ?? err.message : String(err)); }
+  return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
+});
+

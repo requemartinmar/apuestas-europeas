@@ -16,6 +16,11 @@ type MatchRow = {
   id: number;
   api_fixture_id: number | null;
   competid_id: string;
+  equipo_local_id: number;
+  equipo_visitante_id: number;
+  temporada: string | null;
+  goles_local: number | null;
+  goles_visitante: number | null;
   fecha_utc: string;
   estadisticas_estado: string;
   estadisticas_confirmada_at: string | null;
@@ -125,6 +130,25 @@ function eventKey(event: any, index: number): string {
   ].join("|");
 }
 
+
+function historicalMatchId(leagueCode: string, season: string, date: string, home: string, away: string): number {
+  const value = ["historical", leagueCode, season, date, home, away].join("|").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9|]/g, "");
+  let hash = 14695981039346656037n;
+  for (let i = 0; i < value.length; i++) { hash ^= BigInt(value.charCodeAt(i)); hash = BigInt.asUintN(64, hash * 1099511628211n); }
+  return 700_000_000_000_000 + Number(hash & ((1n << 48n) - 1n));
+}
+async function upsertHistoricalDetails(db: any, record: Record<string, any>) {
+  const { data: existing, error: readError } = await db.from("historical_matches").select("*")
+    .eq("league_code", record.league_code).eq("season", record.season).eq("match_date", record.match_date)
+    .eq("home_team", record.home_team).eq("away_team", record.away_team).maybeSingle();
+  if (readError) throw new Error("Lectura del histórico del partido: " + readError.message);
+  const fields = ["home_goals","away_goals","home_shots","away_shots","home_shots_on_target","away_shots_on_target","home_corners","away_corners","home_yellow","away_yellow","home_red","away_red","kickoff_time"];
+  const merged: Record<string, any> = { ...record, id: existing?.id ?? record.id, source: record.source ?? existing?.source ?? "football-data.org", captured_at: new Date().toISOString() };
+  for (const field of fields) merged[field] = record[field] ?? existing?.[field] ?? null;
+  const { error } = await db.from("historical_matches").upsert(merged,{onConflict:"league_code,season,match_date,home_team,away_team"});
+  if (error) throw new Error("Guardado del histórico del partido: " + error.message);
+}
+
 function shouldRetry(status: string, confirmedAt: string | null, now: number): boolean {
   if (status === "AVAILABLE") return false;
   if (status === "PENDING" || !confirmedAt) return true;
@@ -216,7 +240,7 @@ Deno.serve(async (request) => {
 
     const windowStart = new Date(now.getTime() - 30 * 86400000).toISOString();
     const { data: matches, error: matchesError } = await db.from("partidos")
-      .select("id,api_fixture_id,competid_id,fecha_utc,estadisticas_estado,estadisticas_confirmada_at,eventos_estado,eventos_confirmados_at,alineaciones_estado,alineaciones_confirmadas_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
+      .select("id,api_fixture_id,competid_id,equipo_local_id,equipo_visitante_id,temporada,goles_local,goles_visitante,fecha_utc,estadisticas_estado,estadisticas_confirmada_at,eventos_estado,eventos_confirmados_at,alineaciones_estado,alineaciones_confirmados_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)")
       .eq("estado", "FINISHED").in("competid_id", [...LEAGUES].map(String))
       .gte("fecha_utc", windowStart).lte("fecha_utc", now.toISOString());
     if (matchesError) throw new Error("No se pudieron cargar partidos de Supabase: " + matchesError.message);
@@ -320,6 +344,49 @@ Deno.serve(async (request) => {
           } else {
             hasStats = true;
           }
+        }
+
+        const historyLeagues: Record<string, { code: string; name: string }> = {
+          "140": { code: "SP1", name: "LaLiga" }, "39": { code: "E0", name: "Premier League" },
+          "78": { code: "D1", name: "Bundesliga" }, "135": { code: "I1", name: "Serie A" },
+          "2": { code: "CL", name: "UEFA Champions League" }, "3": { code: "EL", name: "UEFA Europa League" },
+          "848": { code: "UECL", name: "UEFA Conference League" },
+        };
+        const historyLeague = historyLeagues[String(match.competid_id)];
+        const { data: teamAliases, error: teamAliasesError } = await db.from("equipo_alias")
+          .select("equipo_id,hist_league,hist_team")
+          .in("equipo_id", [match.equipo_local_id, match.equipo_visitante_id]);
+        if (teamAliasesError) throw new Error("No se pudieron resolver los alias históricos: " + teamAliasesError.message);
+        const aliasById = new Map<number, any>((teamAliases ?? []).map((row: any) => [Number(row.equipo_id), row]));
+        const homeAlias = aliasById.get(Number(match.equipo_local_id));
+        const awayAlias = aliasById.get(Number(match.equipo_visitante_id));
+        const alignedAliases = Boolean(homeAlias && awayAlias && homeAlias.hist_league && homeAlias.hist_league === awayAlias.hist_league);
+        const historyCode = alignedAliases ? String(homeAlias.hist_league) : historyLeague?.code;
+        const homeName = String(alignedAliases ? homeAlias.hist_team : (match.equipo_local?.nombre ?? detail.teams?.home?.name ?? ""));
+        const awayName = String(alignedAliases ? awayAlias.hist_team : (match.equipo_visitante?.nombre ?? detail.teams?.away?.name ?? ""));
+        const historyLeagueName = historyCode === "SP1" ? "LaLiga" : historyCode === "E0" ? "Premier League" :
+          historyCode === "D1" ? "Bundesliga" : historyCode === "I1" ? "Serie A" : historyLeague?.name;
+        const kickoff = new Date(match.fecha_utc);
+        const historyDate = Number.isFinite(kickoff.getTime()) ? kickoff.toISOString().slice(0, 10) : "";
+        const seasonStart = kickoff.getUTCMonth() + 1 >= 7 ? kickoff.getUTCFullYear() : kickoff.getUTCFullYear() - 1;
+        const historySeason = String(match.temporada ?? (seasonStart + "/" + String(seasonStart + 1).slice(-2)));
+        const homeScoreRaw = detail.goals?.home ?? match.goles_local;
+        const awayScoreRaw = detail.goals?.away ?? match.goles_visitante;
+        const homeScore = Number.isInteger(homeScoreRaw) ? Number(homeScoreRaw) : null;
+        const awayScore = Number.isInteger(awayScoreRaw) ? Number(awayScoreRaw) : null;
+        if (historyCode && historyLeagueName && homeName && awayName && historyDate && homeScore !== null && awayScore !== null && homeScore >= 0 && awayScore >= 0) {
+          await upsertHistoricalDetails(db, {
+            id: historicalMatchId(historyCode, historySeason, historyDate, homeName, awayName),
+            league_code: historyCode, league_name: historyLeagueName, season: historySeason, match_date: historyDate,
+            kickoff_time: Number.isFinite(kickoff.getTime()) ? kickoff.toISOString().slice(11, 16) : null,
+            home_team: homeName, away_team: awayName, home_goals: homeScore, away_goals: awayScore,
+            home_shots: statValue(homeStats, "Total Shots"), away_shots: statValue(awayStats, "Total Shots"),
+            home_shots_on_target: statValue(homeStats, "Shots on Goal"), away_shots_on_target: statValue(awayStats, "Shots on Goal"),
+            home_corners: statValue(homeStats, "Corner Kicks"), away_corners: statValue(awayStats, "Corner Kicks"),
+            home_yellow: statValue(homeStats, "Yellow Cards"), away_yellow: statValue(awayStats, "Yellow Cards"),
+            home_red: statValue(homeStats, "Red Cards"), away_red: statValue(awayStats, "Red Cards"),
+            source: hasStats ? "API-Football" : null,
+          });
         }
 
         const events = Array.isArray(detail.events) ? detail.events : [];
