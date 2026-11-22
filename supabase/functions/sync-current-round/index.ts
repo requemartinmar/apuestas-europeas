@@ -197,7 +197,8 @@ async function upsertHistoricalScoreRows(db: Db, records: Record<string, any>[])
     const merged = chunk.map((record) => {
       const previous = byKey.get(JSON.stringify([record.season,record.match_date,record.home_team,record.away_team]));
       const stats = ["home_shots","away_shots","home_shots_on_target","away_shots_on_target","home_corners","away_corners","home_yellow","away_yellow","home_red","away_red"];
-      const row: Record<string, any> = { ...record, id: previous?.id ?? record.id,
+      const { id: _historicalId, ...recordWithoutId } = record;
+      const row: Record<string, any> = { ...recordWithoutId,
         home_goals: record.home_goals ?? previous?.home_goals ?? null, away_goals: record.away_goals ?? previous?.away_goals ?? null,
         kickoff_time: record.kickoff_time ?? previous?.kickoff_time ?? null, source: previous?.source ?? record.source, captured_at: new Date().toISOString() };
       for (const field of stats) row[field] = record[field] ?? previous?.[field] ?? null;
@@ -257,8 +258,9 @@ async function upsertConferenceHistoricalRecords(
       ]);
       const previous = existingByKey.get(key);
 
+      const { id: _historicalId, ...recordWithoutId } = record;
       return {
-        ...record,
+        ...recordWithoutId,
         kickoff_time: record.kickoff_time ?? previous?.kickoff_time ?? null,
         home_shots: record.home_shots ?? previous?.home_shots ?? null,
         away_shots: record.away_shots ?? previous?.away_shots ?? null,
