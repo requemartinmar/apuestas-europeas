@@ -346,6 +346,7 @@
     .fixture-group-tag{border:1px solid #35475a;border-radius:20px;padding:5px 9px;color:#a9bad0;background:#152236;font-size:9px;font-weight:800;letter-spacing:.7px;white-space:nowrap}
     .fixture-group .fixture-list{gap:8px}
     .fixture-group .fixture{grid-template-columns:minmax(0,1fr) 86px minmax(0,1fr);gap:10px 14px;padding:14px 16px;background:linear-gradient(110deg,#111d2d,#101a29);border-color:#26374d}
+    .next-round-panel{margin:0 0 22px;padding:clamp(18px,2.5vw,27px);border:1px solid #536a42;border-radius:19px;background:linear-gradient(135deg,#17271f,#101b25 72%);box-shadow:0 15px 40px #0003}.next-round-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:15px}.next-round-heading h2{margin:6px 0;font-size:clamp(19px,2.5vw,25px)}.next-round-heading p{margin:0;color:var(--muted);font-size:12px}.next-round-count{border:1px solid #c5f47740;background:#c5f47712;color:#d6f5a7;border-radius:30px;padding:7px 11px;font-size:10px;font-weight:800;white-space:nowrap}.next-round-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.next-round-competition{padding:12px;border:1px solid #ffffff16;border-radius:12px;background:#09131b88}.next-round-competition header{display:flex;justify-content:space-between;gap:8px;margin-bottom:9px}.next-round-competition h3{font-size:13px;margin:0}.next-round-competition small{color:var(--muted);font-size:10px}.next-round-match{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid #ffffff0c;font-size:11px}.next-round-match span:last-child{color:#c5f477;white-space:nowrap}.next-round-empty{padding:14px;border:1px dashed #536a42;border-radius:11px;color:var(--muted);font-size:12px}@media(max-width:700px){.next-round-heading{flex-direction:column}.next-round-list{grid-template-columns:1fr}}
     .fixture-group .fixture-score{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:0}
     .fixture-group .fixture-score strong{font-size:18px;font-weight:850;letter-spacing:-.4px;color:#f3f7fc;white-space:nowrap;font-variant-numeric:tabular-nums}
     .fixture-group .fixture-score strong.score-live{color:#ff777f}
@@ -379,6 +380,7 @@
         
         <div class="heading"><div><div class="eyebrow">Centro de análisis</div><h1>CANCHA 2.0</h1><p>Inteligencia deportiva para analizar partidos, estadísticas y mercados con datos verificables.</p><span class="demo-banner" id="demo-banner" role="status">Datos de ejemplo</span></div><div class="date">TEMPORADA ACTUAL<br><strong id="season-label" style="color:#dce7f5;font-size:13px">2026/27</strong></div></div>
         
+        <section class="next-round-panel" id="next-round-panel"><div class="next-round-heading"><div><span class="cancha-kicker">CALENDARIO DE COMPETICIONES</span><h2>Jornada que se va a jugar</h2><p>Próxima jornada pendiente de cada competición activa.</p></div><span class="next-round-count" id="next-round-count">Cargando</span></div><div id="next-round-list" class="next-round-list"><p class="muted-note">Consultando las próximas jornadas...</p></div></section>
         <section class="cancha-hero" aria-label="Resumen de CANCHA 2.0"><div class="cancha-hero-copy"><span class="cancha-kicker">MATCH INTELLIGENCE · EUROPA</span><h2>Los datos primero.<br><em>Las decisiones, mejor informadas.</em></h2><p>Explora la jornada, descubre señales estadísticas y compara mercados disponibles sin cuotas inventadas.</p><div class="cancha-hero-tags"><span>✦ Análisis IA</span><span>◉ Cuotas verificadas</span><span>▤ Estadísticas</span></div></div><div class="cancha-hero-art" aria-hidden="true"><div class="hero-orbit orbit-one"></div><div class="hero-orbit orbit-two"></div><div class="hero-ball">⚽</div><div class="hero-chip chip-top">DATA · LIVE</div><div class="hero-chip chip-bottom">CANCHA / 02</div></div></section>
         <div class="leaguebar" id="leaguebar" role="tablist" aria-label="Competiciones"><button class="league active" data-league="all">Todas hoy</button><button class="league" data-league="laliga"><span class="flag">🇪🇸</span>LaLiga</button><button class="league" data-league="premier-league"><span class="flag">🏴</span>Premier League</button><button class="league" data-league="bundesliga"><span class="flag">🇩🇪</span>Bundesliga</button><button class="league" data-league="serie-a"><span class="flag">🇮🇹</span>Serie A</button><button class="league" data-league="champions-league"><span class="flag">🏆</span>Champions</button><button class="league" data-league="europa-league"><span class="flag">🏆</span>Europa League</button><button class="league" data-league="conference-league"><span class="flag">🏆</span>Conference</button></div>
         <div class="grid">
@@ -425,7 +427,7 @@
     };
     const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{global:{fetch:resilientFetch}}),$=s=>document.querySelector(s),STORE_KEY='cancha.personal.records.v1';
     const localDate=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`};
-    const state={competition:competitions.all,rows:[],manual:readStored(),date:localDate(new Date()),season:null,demo:false};
+    const state={competition:competitions.all,rows:[],nextRoundMatches:[],manual:readStored(),date:localDate(new Date()),season:null,demo:false};
     let teamFormHistory=[];
     const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const dateLabel=v=>v?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Madrid'}).format(new Date(v)):'Hora pendiente';
@@ -1116,19 +1118,14 @@
         root.innerHTML='<div class="odds-state error">No se pudo recuperar el histórico. '+esc(error.message||'Error de conexión')+'</div>';
       }finally{button.disabled=false;}
     }
-    async function loadPredictions(matches){
+    async function loadPredictions(matches,roundMatches=[]){
       const request=++predictionRequest,root=$('#predicciones'),badge=$('#predictions-status'),topRoot=$('#top3-list');
       const hasVisibleMatches=!!matches?.length;
       if(!hasVisibleMatches){root.innerHTML='<div class="pr-empty">No hay partidos en esta fecha para analizar.</div>';badge.textContent='Preparando captura de próximos pronósticos';topRoot.innerHTML='<div class="top3-empty">No hay encuentros en esta fecha.</div>';$('#top3-status').textContent='Sin partidos';}
       else{badge.textContent='Analizando equipos';root.innerHTML='<p class="muted-note">Calculando forma reciente y rendimiento local/visitante…</p>';topRoot.innerHTML='<p class="muted-note">Comparando los equipos con su histórico individual…</p>';}
       try{
         const selectedProviderMatches=(matches??[]).filter(m=>!m.local_record&&m.equipo_local_id!=null&&m.equipo_visitante_id!=null);
-        let upcomingMatches=[];
-        if(state.season){
-          const from=new Date(),until=new Date(from.getTime()+7*24*60*60*1000);
-          const {data,error}=await db.from('partidos').select('id,competid_id,temporada,fecha_utc,equipo_local_id,equipo_visitante_id,estado,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)').eq('temporada',state.season).eq('estado','SCHEDULED').gt('fecha_utc',from.toISOString()).lt('fecha_utc',until.toISOString()).order('fecha_utc',{ascending:true}).limit(500);
-          if(error)console.warn('No se pudo cargar la ventana de captura de pronósticos:',error);else upcomingMatches=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));
-        }
+        const upcomingMatches=roundMatches??[];
         const providerMatches=[...new Map([...selectedProviderMatches,...upcomingMatches].map(m=>[String(m.id),m])).values()];
         bookmakerOddsMatches=providerMatches;renderHistoricalMatchOptions(providerMatches);
         loadBookmakerOdds(bookmakerOddsMatches).catch(error=>console.warn('Cuotas CANCHA:',error));
@@ -1155,7 +1152,8 @@
         const analysedById=new Map(analysedAll.map(x=>[String(x.m.id),x]));
         const analysed=(matches??[]).map(m=>analysedById.get(String(m.id))??({m,model:null}));
         saveCanchaSnapshots(analysedAll).catch(error=>console.warn('No se pudieron guardar los snapshots de CANCHA:',error));
-        const future=analysed.filter(x=>!x.m.local_record&&x.model&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>Date.now()).sort((a,b)=>b.model.score-a.model.score);
+        const roundIds=new Set((upcomingMatches??[]).map(m=>String(m.id)));
+        const future=analysedAll.filter(x=>roundIds.has(String(x.m.id))&&!x.m.local_record&&x.model&&x.m.fecha_utc&&new Date(x.m.fecha_utc).getTime()>Date.now()).sort((a,b)=>b.model.score-a.model.score);
         // TOP 3: competirán todas las competiciones de la fecha/jornada seleccionada.
         // No se priorizan ligas ni equipos por nombre; solo cuenta la puntuación del modelo.
         const ranked=future.slice(0,3);
@@ -1225,7 +1223,37 @@
         badge.textContent='No disponible';
       }
     }
-    async function loadMatches(){const badge=$('#supabase-status'),msg=$('#connection-message');$('#sync-status').textContent='Cargando';setEmpty('Cargando partidos','Leyendo los encuentros de la fecha seleccionada.');msg.textContent='';msg.classList.remove('error');try{const {data:comps,error:ce}=await db.from('competiciones').select('id,nombre,temporada_actual,activo').eq('activo',true);if(ce)throw ce;const ids=(comps??[]).map(c=>String(c.id));const season=(comps??[]).map(c=>c.temporada_actual).filter(Boolean).sort().at(-1);state.season=season??null;$('#season-label').textContent=season??'Temporada actual';const {from,to}=dayBounds(state.date);let query=db.from('partidos').select('id,competid_id,temporada,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,sincronizado_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre,escudo_url),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre,escudo_url),estadisticas:estadisticas_partido(id,posesion_local,posesion_visitante,tiros_puerta_local,tiros_puerta_visitante,tiros_totales_local,tiros_totales_visitante,tiros_fuera_local,tiros_fuera_visitante,tiros_bloqueados_local,tiros_bloqueados_visitante,corners_local,corners_visitante,faltas_local,faltas_visitante,fueras_juego_local,fueras_juego_visitante,paradas_portero_local,paradas_portero_visitante,pases_totales_local,pases_totales_visitante,pases_precisos_local,pases_precisos_visitante,tarjetas_amarillas_local,tarjetas_amarillas_visitante,tarjetas_rojas_local,tarjetas_rojas_visitante,fuente,capturado_at)').eq('temporada',season).gte('fecha_utc',from).lte('fecha_utc',to).order('fecha_utc',{ascending:true}).limit(1000);if(state.competition.id!=='all')query=query.eq('competid_id',state.competition.id);else if(ids.length)query=query.in('competid_id',ids);const {data,error}=await query;if(error)throw error;state.rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));await loadTeamFormHistory(state.rows);try{localStorage.setItem(MATCH_CACHE_KEY,JSON.stringify({date:state.date,competition:state.competition.id,savedAt:new Date().toISOString(),rows:state.rows}))}catch(cacheError){console.warn('No se pudo guardar la caché de partidos:',cacheError)}loadPredictions(state.rows);loadCanchaComparison();badge.className='source-pill connected';badge.title='Conexión con Supabase correcta';badge.innerHTML='<i class="dot"></i> Datos actualizados '+new Intl.DateTimeFormat('es-ES',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Madrid'}).format(new Date());msg.textContent=`${state.rows.length} partidos de proveedor · ${state.manual.filter(m=>dayOf(m.fecha_utc)===state.date).length} registros personales`;render()}catch(error){
+    async function loadNextRoundFixtures(ids,season){
+      const root=$('#next-round-list'),count=$('#next-round-count');
+      if(!season||!ids.length){state.nextRoundMatches=[];root.innerHTML='<div class="next-round-empty">No hay competiciones activas con temporada disponible.</div>';count.textContent='Sin datos';return;}
+      const from=new Date(),until=new Date(from.getTime()+45*24*60*60*1000);
+      const {data,error}=await db.from('partidos').select('id,competid_id,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,estado,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)').eq('temporada',season).in('competid_id',ids).eq('estado','SCHEDULED').gte('fecha_utc',from.toISOString()).lt('fecha_utc',until.toISOString()).order('fecha_utc',{ascending:true}).limit(1500);
+      if(error)throw error;
+      const rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));
+      const byCompetition=new Map();
+      for(const m of rows){
+        const comp=String(m.competid_id),round=String(m.jornada_nombre??m.jornada??('fecha '+localDate(new Date(m.fecha_utc))));
+        if(!byCompetition.has(comp))byCompetition.set(comp,new Map());
+        const rounds=byCompetition.get(comp);
+        if(!rounds.has(round))rounds.set(round,[]);
+        rounds.get(round).push(m);
+      }
+      const selected=[];
+      for(const rounds of byCompetition.values()){
+        const first=[...rounds.values()].sort((a,b)=>new Date(a[0].fecha_utc)-new Date(b[0].fecha_utc))[0];
+        if(first)selected.push(...first);
+      }
+      selected.sort((a,b)=>new Date(a.fecha_utc)-new Date(b.fecha_utc));
+      state.nextRoundMatches=selected;
+      const groups=new Map();
+      for(const m of selected){const key=String(m.competid_id);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(m);}
+      root.innerHTML=groups.size?[...groups.values()].map(matches=>{
+        const first=matches[0],round=first.jornada_nombre??(first.jornada!=null?'Jornada '+first.jornada:'Próxima fecha');
+        return '<section class="next-round-competition"><header><div><h3>'+esc(first.competition_name)+'</h3><small>'+esc(round)+'</small></div><small>'+matches.length+' '+(matches.length===1?'partido':'partidos')+'</small></header>'+matches.map(m=>'<div class="next-round-match"><span>'+esc(m.equipo_local?.nombre??'Local')+' – '+esc(m.equipo_visitante?.nombre??'Visitante')+'</span><span>'+esc(dateLabel(m.fecha_utc))+'</span></div>').join('')+'</section>';
+      }).join(''):'<div class="next-round-empty">No hay jornadas futuras programadas en las próximas seis semanas.</div>';
+      count.textContent=groups.size?groups.size+' competiciones':'Sin jornadas';
+    }
+    async function loadMatches(){const badge=$('#supabase-status'),msg=$('#connection-message');$('#sync-status').textContent='Cargando';setEmpty('Cargando partidos','Leyendo los encuentros de la fecha seleccionada.');msg.textContent='';msg.classList.remove('error');try{const {data:comps,error:ce}=await db.from('competiciones').select('id,nombre,temporada_actual,activo').eq('activo',true);if(ce)throw ce;const ids=(comps??[]).map(c=>String(c.id));const season=(comps??[]).map(c=>c.temporada_actual).filter(Boolean).sort().at(-1);state.season=season??null;$('#season-label').textContent=season??'Temporada actual';await loadNextRoundFixtures(ids,season);const {from,to}=dayBounds(state.date);let query=db.from('partidos').select('id,competid_id,temporada,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,goles_local,goles_visitante,estado,sincronizado_at,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre,escudo_url),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre,escudo_url),estadisticas:estadisticas_partido(id,posesion_local,posesion_visitante,tiros_puerta_local,tiros_puerta_visitante,tiros_totales_local,tiros_totales_visitante,tiros_fuera_local,tiros_fuera_visitante,tiros_bloqueados_local,tiros_bloqueados_visitante,corners_local,corners_visitante,faltas_local,faltas_visitante,fueras_juego_local,fueras_juego_visitante,paradas_portero_local,paradas_portero_visitante,pases_totales_local,pases_totales_visitante,pases_precisos_local,pases_precisos_visitante,tarjetas_amarillas_local,tarjetas_amarillas_visitante,tarjetas_rojas_local,tarjetas_rojas_visitante,fuente,capturado_at)').eq('temporada',season).gte('fecha_utc',from).lte('fecha_utc',to).order('fecha_utc',{ascending:true}).limit(1000);if(state.competition.id!=='all')query=query.eq('competid_id',state.competition.id);else if(ids.length)query=query.in('competid_id',ids);const {data,error}=await query;if(error)throw error;state.rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));await loadTeamFormHistory(state.rows);try{localStorage.setItem(MATCH_CACHE_KEY,JSON.stringify({date:state.date,competition:state.competition.id,savedAt:new Date().toISOString(),rows:state.rows}))}catch(cacheError){console.warn('No se pudo guardar la caché de partidos:',cacheError)}loadPredictions(state.rows,state.nextRoundMatches);loadCanchaComparison();badge.className='source-pill connected';badge.title='Conexión con Supabase correcta';badge.innerHTML='<i class="dot"></i> Datos actualizados '+new Intl.DateTimeFormat('es-ES',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Madrid'}).format(new Date());msg.textContent=`${state.rows.length} partidos de proveedor · ${state.manual.filter(m=>dayOf(m.fecha_utc)===state.date).length} registros personales`;render()}catch(error){
         console.error(error);
         let cached=null;
         try{cached=JSON.parse(localStorage.getItem(MATCH_CACHE_KEY)||'null')}catch(cacheError){console.warn('Caché de partidos no válida:',cacheError)}
