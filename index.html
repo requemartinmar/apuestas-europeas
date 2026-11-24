@@ -655,12 +655,13 @@
       const pct=v=>Number.isFinite(Number(v))?Number(v).toFixed(1).replace('.',',')+'%':'—';
       const avg=v=>v==null||!Number.isFinite(Number(v))?'—':Number(v).toFixed(1).replace('.',',');
       const bestMarket=[['Más de 1,5 goles',model.metrics.over_1_5_pct],['Más de 2,5 goles',model.metrics.over_2_5_pct],['Ambos marcan',model.metrics.btts_pct]].filter(x=>Number.isFinite(Number(x[1]))).sort((a,b)=>b[1]-a[1])[0];
-      const teamStats=(label,team)=>'<div class="match-analysis-team"><h4>'+esc(label)+'</h4><small>Muestra: '+team.n+' partidos · '+team.venueN+' en '+(label===homeName?'casa':'condición visitante')+'</small><div class="match-analysis-stats"><span>Goles a favor <b>'+avg(team.gf)+'</b></span><span>Goles en contra <b>'+avg(team.ga)+'</b></span><span>Remates totales <b>'+avg(team.shots)+'</b></span><span>Remates a puerta <b>'+avg(team.sot)+'</b></span><span>Córners <b>'+avg(team.corners)+'</b></span><span>Tarjetas <b>'+avg(team.cards)+'</b></span></div></div>';
+      const leagueNames={SP1:'LaLiga',E0:'Premier League',D1:'Bundesliga',I1:'Serie A',F1:'Ligue 1',N1:'Eredivisie'};
+      const teamStats=(label,team,league)=>'<div class="match-analysis-team"><h4>'+esc(label)+'</h4><small>Muestra: '+team.n+' partidos · '+team.venueN+' '+(label===homeName?'en casa':'como visitante')+' · histórico '+esc(leagueNames[league]??league)+'</small><div class="match-analysis-stats"><span>Goles a favor <b>'+avg(team.gf)+'</b></span><span>Goles en contra <b>'+avg(team.ga)+'</b></span><span>Remates totales <b>'+avg(team.shots)+'</b></span><span>Remates a puerta <b>'+avg(team.sot)+'</b></span><span>Córners <b>'+avg(team.corners)+'</b></span><span>Tarjetas <b>'+avg(team.cards)+'</b></span></div></div>';
       return '<section class="match-detail-card match-analysis-card" style="grid-column:1/-1"><h3>🎯 Análisis estadístico CANCHA</h3>'+
         '<div class="match-analysis-score"><div><small>Marcador más probable</small><strong>'+esc(model.scoreline)+'</strong></div><div><small>Goles esperados</small><strong>'+avg(model.lambdaHome)+' – '+avg(model.lambdaAway)+'</strong></div></div>'+
         '<h4>📊 Probabilidad 1X2</h4><div class="match-analysis-probs"><span>🏠 Local <b>'+pct(model.metrics.home_win_pct)+'</b></span><span>🤝 Empate <b>'+pct(model.metrics.draw_pct)+'</b></span><span>✈️ Visitante <b>'+pct(model.metrics.away_win_pct)+'</b></span></div>'+
         '<h4>⚽ Mercados de goles</h4><div class="match-analysis-probs"><span>Más de 1,5 <b>'+pct(model.metrics.over_1_5_pct)+'</b></span><span>Más de 2,5 <b>'+pct(model.metrics.over_2_5_pct)+'</b></span><span>Ambos marcan <b>'+pct(model.metrics.btts_pct)+'</b></span></div>'+
-        '<h4>📈 Media reciente por partido</h4><div class="match-analysis-team-grid">'+teamStats(homeName,model.home)+teamStats(awayName,model.away)+'</div>'+
+        '<h4>📈 Media reciente por partido</h4><div class="match-analysis-team-grid">'+teamStats(homeName,model.home,model.homeLeague)+teamStats(awayName,model.away,model.awayLeague)+'</div>'+
         '<p class="player-explain">Muestra de '+model.home.n+' partidos del equipo local y '+model.away.n+' del visitante. Remates totales no disponibles en el histórico consultado; no se estiman ni se inventan. Las estadísticas individuales solo se muestran cuando la fuente las proporciona.</p>'+
         (bestMarket?'<p class="match-analysis-best">⭐ Pronóstico más probable entre estos mercados: <b>'+esc(bestMarket[0])+' · '+pct(bestMarket[1])+'</b></p>':'')+
         '<p class="player-explain">Estimaciones Poisson orientativas, no probabilidades calibradas ni garantías de resultado.</p></section>';
@@ -852,15 +853,19 @@
     }
     function matchModel(match,rows,aliasMap,leagueBaseline){
       const homeAlias=aliasMap.get(String(match.equipo_local_id)),awayAlias=aliasMap.get(String(match.equipo_visitante_id));
-      if(!homeAlias||!awayAlias||homeAlias.hist_league!==awayAlias.hist_league)return null;
-      const leagueRows=rows.get(homeAlias.hist_league)||[];
+      if(!homeAlias||!awayAlias||!homeAlias.hist_league||!awayAlias.hist_league)return null;
+      // Cada equipo se analiza en su propia liga nacional; no se exige que ambos
+      // compartan código de competición (p. ej. SP1 frente a N1 en Champions).
+      const homeRows=rows.get(homeAlias.hist_league)||[];
+      const awayRows=rows.get(awayAlias.hist_league)||[];
       const cutoff=String(match.fecha_utc||'').slice(0,10);
-      const home=teamHistory(leagueRows,homeAlias.hist_team,'home',cutoff);
-      const away=teamHistory(leagueRows,awayAlias.hist_team,'away',cutoff);
+      const home=teamHistory(homeRows,homeAlias.hist_team,'home',cutoff);
+      const away=teamHistory(awayRows,awayAlias.hist_team,'away',cutoff);
       if(home.n<5||away.n<5||home.gf==null||home.ga==null||away.gf==null||away.ga==null)return null;
-      const base=leagueBaseline.get(homeAlias.hist_league)||{home:1.45,away:1.2};
-      const lambdaHome=Math.max(.15,(home.gf*.45+away.ga*.45+base.home*.10));
-      const lambdaAway=Math.max(.15,(away.gf*.45+home.ga*.45+base.away*.10));
+      const homeBase=leagueBaseline.get(homeAlias.hist_league)||{home:1.45,away:1.2};
+      const awayBase=leagueBaseline.get(awayAlias.hist_league)||{home:1.45,away:1.2};
+      const lambdaHome=Math.max(.15,(home.gf*.45+away.ga*.45+homeBase.home*.10));
+      const lambdaAway=Math.max(.15,(away.gf*.45+home.ga*.45+awayBase.away*.10));
       const ph=poissonDistribution(lambdaHome),pa=poissonDistribution(lambdaAway);
       let over15=0,over25=0,btts=0,homeWin=0,draw=0,awayWin=0,best={p:-1,h:0,a:0};
       for(let h=0;h<ph.length;h++)for(let a=0;a<pa.length;a++){
@@ -874,7 +879,7 @@
       const score=(over25*.4+btts*.35+over15*.25)*100;
       const combined=(a,b)=>a==null&&b==null?null:a==null?b:b==null?a:a+b;
       return {
-        home,away,lambdaHome,lambdaAway,score,scoreline:best.h+'–'+best.a,
+        home,away,homeLeague:homeAlias.hist_league,awayLeague:awayAlias.hist_league,lambdaHome,lambdaAway,score,scoreline:best.h+'–'+best.a,
         metrics:{
           over_1_5_pct:over15*100,over_2_5_pct:over25*100,btts_pct:btts*100,
           expected_goals:lambdaHome+lambdaAway,home_win_pct:homeWin*100,draw_pct:draw*100,away_win_pct:awayWin*100,
