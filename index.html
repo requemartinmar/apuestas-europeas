@@ -387,7 +387,7 @@
           <section class="card wide" id="predictions-card"><div class="card-title"><div><h2>✦ Top 3 · Señales estadísticas</h2><span class="subtle">Las tres mejores opciones entre los partidos de la fecha seleccionada</span></div><span class="not-ready" id="top3-status">Calculando</span></div><div id="top3-list"><p class="muted-note">Buscando señales en el histórico de Supabase…</p></div><details class="disclosure"><summary>ⓘ Cómo se calcula el modelo</summary><div class="disclosure-content"><p class="muted-note">El modelo Poisson estima goles a partir del ataque reciente y la defensa del rival. Es una referencia estadística orientativa, no una probabilidad calibrada ni una garantía de resultado. Consulta la muestra de partidos que acompaña a cada análisis.</p></div></details><div style="height:1px;background:#26364b;margin:20px 0"></div><div class="card-title"><div><h2>Referencias estadísticas por partido</h2><span class="subtle">Forma reciente de ambos equipos y rendimiento local / visitante</span></div><span class="not-ready" id="predictions-status">Calculando</span></div><div id="predicciones"><p class="muted-note">Consultando el histórico de la competición…</p></div><p class="muted-note">Estimaciones calculadas con hasta los últimos 12 partidos de cada equipo, dando más peso a sus encuentros como local o visitante. Muestra mínima: 5 partidos por equipo. El histórico individual disponible cubre LaLiga, Premier League, Bundesliga y Serie A; en otras competiciones no se inventan datos.</p><div class="bookmaker-panel"><div class="card-title"><div><h2>◉ Cuotas reales · Comparador de casas</h2><span class="subtle">Betfair · Bet365</span></div><button class="action-btn" id="refresh-bookmaker-odds" type="button">Actualizar cuotas</button></div><p class="muted-note">Datos recibidos de la fuente de cuotas. Betfair se muestra como Exchange; no se sustituye por Betfair Sportsbook. Si una casa o mercado no ofrece precio, aparecerá «—».</p><div id="bookmaker-odds"><p class="muted-note">Esperando consulta de cuotas reales. No se mostrarán ejemplos ni estimaciones como si fueran precios.</p></div><p class="muted-note" id="bookmaker-odds-source">Fuente: OddsPapi · cuotas prepartido; actualización limitada por el plan gratuito.</p><div class="historical-panel" style="margin-top:18px;padding-top:16px;border-top:1px solid #26364b"><div class="card-title"><div><h3 style="margin:0">Histórico de cuotas · evolución</h3><span class="subtle">Apertura, movimientos y últimas cuotas registradas para un partido asociado previamente a OddsPapi.</span></div></div><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0"><select id="historical-match-select" class="match-picker" style="flex:1;min-width:220px"><option value="">Selecciona un partido</option></select><button class="action-btn" id="load-historical-odds" type="button">Consultar histórico</button></div><div id="historical-odds-result"><p class="muted-note">Selecciona un partido para consultar su histórico. Solo se mostrarán movimientos recibidos de OddsPapi.</p></div></div></div></section>
           <section class="card wide" id="comparison-card"><div class="card-title"><div><h2>◉ Comparativa · Pronóstico vs realidad</h2><span class="subtle">Aciertos del modelo y diferencia frente a las estadísticas finales</span></div><span class="not-ready" id="comparison-status">Cargando</span></div><div id="comparison-summary" class="comparison-grid"><div class="comparison-metric"><span>Pronósticos guardados</span><strong>—</strong></div></div><div class="table-wrap" style="margin-top:14px"><table class="comparison-table"><thead><tr><th>PARTIDO</th><th>PRONÓSTICO</th><th>RESULTADO</th><th>ESTADO</th><th>ERROR GOLES</th></tr></thead><tbody id="comparison-body"><tr><td colspan="5" style="text-align:center;color:#77889f;padding:18px">Consultando comparativas.</td></tr></tbody></table></div><p class="muted-note">Los pronósticos se guardan una sola vez antes del inicio. Los resultados se completan desde partidos y estadísticas verificadas; los mercados sin datos reales no cuentan como aciertos ni errores.</p></section>
           <section class="card"><div class="card-title"><h2>Resumen de competición</h2><span class="status" id="sync-status">Cargando</span></div><div class="metric-grid"><div class="metric"><span>Jornada seleccionada</span><strong class="muted" id="metric-round">—</strong></div><div class="metric"><span>Partidos disputados</span><strong class="muted" id="metric-finished">—</strong></div><div class="metric"><span>Equipos en competición</span><strong class="muted" id="metric-teams">—</strong></div><div class="metric"><span>Última actualización</span><strong class="muted" id="metric-updated">—</strong></div></div><div class="notice"><span class="notice-icon">ⓘ</span><div><b>Las cuotas dependen de una fuente autorizada.</b><br>Se guardarán con proveedor y hora de captura para distinguirlas de las estadísticas del partido.</div></div></section>
-          <section class="card wide" id="stats-card"><div class="card-title"><div><h2>Estadísticas por partido</h2><span class="subtle">Posesión · remates · córners · tarjetas · faltas</span></div><span class="not-ready" id="stats-status">Sin datos</span></div><div class="table-wrap"><table><thead><tr><th>COMPETICIÓN / PARTIDO</th><th>MARCADOR</th><th>POSESIÓN</th><th>REMATES</th><th>A PUERTA</th><th>CÓRNERS</th><th>TARJETAS</th><th>FALTAS</th><th>FUENTE</th></tr></thead><tbody id="stats-body"><tr><td colspan="9" style="text-align:center;color:#77889f;padding:22px">Todavía no hay estadísticas verificadas.</td></tr></tbody></table></div><p class="muted-note">Las estadísticas se incorporan desde fuentes disponibles y se muestran solo cuando hay datos verificables. Pulsa cualquier partido para abrir su ficha postpartido.</p></section>
+
           </div>
         <div class="foot">Calendario y análisis del día con datos verificables.</div><div class="responsible-note">Juego responsable · +18 · Solo para mayores de 18 años. Las apuestas implican riesgo de pérdida; establece límites y no persigas pérdidas.</div>
         <div class="match-modal" id="match-detail-modal" hidden>
@@ -558,6 +558,7 @@
       $('#match-detail-body').innerHTML=
         '<div class="match-detail-score"><div class="match-detail-team">'+esc(home)+'</div><div class="match-detail-result">'+esc(score(m))+'</div><div class="match-detail-team">'+esc(away)+'</div></div>'+
         '<div class="match-detail-grid">'+
+          matchReferenceMarkup(m,home,away)+
           '<section class="match-detail-card"><h3>⚽ Goles y goleadores</h3><div class="match-goals">'+goalHtml+'</div></section>'+
           '<section class="match-detail-card"><h3>📊 Estadísticas del encuentro</h3>'+statHtml+'<div class="match-source">Fuente: '+esc(source)+'</div></section>'+
           '<section class="match-detail-card" style="grid-column:1/-1"><h3>📋 Rendimiento individual</h3>'+playerHtml+'<p class="player-explain">'+playerExplain+'</p></section>'+
@@ -590,6 +591,42 @@
           const home=String(m.equipo_local_id)===String(teamId),gf=Number(home?m.goles_local:m.goles_visitante),ga=Number(home?m.goles_visitante:m.goles_local);
           return gf>ga?'W':gf<ga?'L':'D';
         });
+    }
+    function teamReferenceMatches(teamId,kickoff,venue){
+      if(teamId==null||!kickoff)return [];
+      return teamFormHistory.filter(m=>{
+        if(new Date(m.fecha_utc)>=new Date(kickoff))return false;
+        const isHome=String(m.equipo_local_id)===String(teamId);
+        const isAway=String(m.equipo_visitante_id)===String(teamId);
+        return (isHome||isAway)&&(!venue||(venue==='home'?isHome:isAway));
+      }).sort((a,b)=>new Date(b.fecha_utc)-new Date(a.fecha_utc)).slice(0,5);
+    }
+    function teamReferenceMarkup(name,teamId,kickoff,venue){
+      const recent=teamReferenceMatches(teamId,kickoff,null);
+      const venueRows=teamReferenceMatches(teamId,kickoff,venue);
+      const outcome=(m,id)=>{
+        const isHome=String(m.equipo_local_id)===String(id);
+        const gf=Number(isHome?m.goles_local:m.goles_visitante);
+        const ga=Number(isHome?m.goles_visitante:m.goles_local);
+        return {result:gf>ga?'W':gf<ga?'L':'D',gf,ga};
+      };
+      const form=recent.map(m=>outcome(m,teamId).result);
+      const formHtml=form.length?'<span class="team-form" aria-label="Últimos '+form.length+' resultados">'+form.map((v,i)=>'<i class="form-'+v.toLowerCase()+'" title="'+({W:'Victoria',D:'Empate',L:'Derrota'}[v])+' · '+(i+1)+' partido reciente">'+v+'</i>').join('')+'</span>':'<span class="team-form-empty">Sin resultados recientes verificados</span>';
+      const stats=venueRows.map(m=>outcome(m,teamId));
+      const count={W:stats.filter(x=>x.result==='W').length,D:stats.filter(x=>x.result==='D').length,L:stats.filter(x=>x.result==='L').length};
+      const avg=(key)=>stats.length? (stats.reduce((sum,x)=>sum+x[key],0)/stats.length).toFixed(1).replace('.',','):null;
+      const venueLabel=venue==='home'?'En casa':'Como visitante';
+      const venueHtml=stats.length
+        ?'<div class="reference-venue"><b>'+venueLabel+'</b><span>'+stats.length+' partidos · '+count.W+'V · '+count.D+'E · '+count.L+'D</span><small>'+avg('gf')+' goles a favor · '+avg('ga')+' en contra de media</small></div>'
+        :'<div class="reference-venue"><b>'+venueLabel+'</b><span>Sin muestra verificada</span></div>';
+      return '<article class="team-reference"><h4>'+esc(name)+'</h4><div class="reference-form"><span>Últimos '+(form.length||0)+' partidos</span>'+formHtml+'</div>'+venueHtml+'</article>';
+    }
+    function matchReferenceMarkup(m,home,away){
+      const kickoff=m.fecha_utc;
+      return '<section class="match-detail-card match-reference-card" style="grid-column:1/-1"><h3>📈 Referencias estadísticas por equipo</h3><p class="player-explain">Resultados anteriores al encuentro · últimos cinco partidos disponibles · sin incluir el partido analizado.</p><div class="team-reference-grid">'+
+        teamReferenceMarkup(home,m.equipo_local_id,kickoff,'home')+
+        teamReferenceMarkup(away,m.equipo_visitante_id,kickoff,'away')+
+        '</div></section>';
     }
     function teamCrest(team,name){
       const url=team?.escudo_url;
