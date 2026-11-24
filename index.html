@@ -436,6 +436,7 @@
     const localDate=d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${day}`};
     const state={competition:competitions.all,rows:[],date:localDate(new Date()),season:null,demo:false};
     let teamFormHistory=[];
+    let teamReferenceHistory=new Map(),teamReferenceAliasMap=new Map();
     const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const dateLabel=v=>v?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Madrid'}).format(new Date(v)):'Hora pendiente';
     const kickoffTime=v=>v?new Intl.DateTimeFormat('es-ES',{timeZone:'Europe/Madrid',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(v)):'—';
@@ -612,24 +613,30 @@
       }).sort((a,b)=>new Date(b.fecha_utc)-new Date(a.fecha_utc)).slice(0,5);
     }
     function teamReferenceMarkup(name,teamId,kickoff,venue){
-      const recent=teamReferenceMatches(teamId,kickoff,null);
-      const venueRows=teamReferenceMatches(teamId,kickoff,venue);
-      const outcome=(m,id)=>{
-        const isHome=String(m.equipo_local_id)===String(id);
-        const gf=Number(isHome?m.goles_local:m.goles_visitante);
-        const ga=Number(isHome?m.goles_visitante:m.goles_local);
+      const alias=teamReferenceAliasMap.get(String(teamId));
+      const histRows=alias?(teamReferenceHistory.get(alias.hist_league)??[]).filter(r=>r.match_date<String(kickoff??'').slice(0,10)&&(r.home_team===alias.hist_team||r.away_team===alias.hist_team)).sort((a,b)=>String(b.match_date).localeCompare(String(a.match_date))):[];
+      const resultOf=(row,team)=>{
+        const isHome=row.home_team===team;
+        const gf=Number(isHome?row.home_goals:row.away_goals),ga=Number(isHome?row.away_goals:row.home_goals);
         return {result:gf>ga?'W':gf<ga?'L':'D',gf,ga};
       };
-      const form=recent.map(m=>outcome(m,teamId).result);
-      const formHtml=form.length?'<span class="team-form" aria-label="Últimos '+form.length+' resultados">'+form.map((v,i)=>'<i class="form-'+v.toLowerCase()+'" title="'+({W:'Victoria',D:'Empate',L:'Derrota'}[v])+' · '+(i+1)+' partido reciente">'+v+'</i>').join('')+'</span>':'<span class="team-form-empty">Sin resultados recientes verificados</span>';
-      const stats=venueRows.map(m=>outcome(m,teamId));
+      const useHistorical=histRows.length>0;
+      const recent=useHistorical?histRows.slice(0,5):teamReferenceMatches(teamId,kickoff,null);
+      const venueRows=useHistorical?histRows.filter(r=>venue==='home'?r.home_team===alias.hist_team:r.away_team===alias.hist_team).slice(0,5):teamReferenceMatches(teamId,kickoff,venue);
+      const outcomes=rows=>rows.map(row=>useHistorical?resultOf(row,alias.hist_team):(()=>{
+        const isHome=String(row.equipo_local_id)===String(teamId);
+        const gf=Number(isHome?row.goles_local:row.goles_visitante),ga=Number(isHome?row.goles_visitante:row.goles_local);
+        return {result:gf>ga?'W':gf<ga?'L':'D',gf,ga};
+      })()).filter(x=>Number.isFinite(x.gf)&&Number.isFinite(x.ga));
+      const recentStats=outcomes(recent),stats=outcomes(venueRows);
+      const formHtml=recentStats.length?'<span class="team-form" aria-label="Últimos '+recentStats.length+' resultados">'+recentStats.map((x,i)=>'<i class="form-'+x.result.toLowerCase()+'" title="'+({W:'Victoria',D:'Empate',L:'Derrota'}[x.result])+' · '+(i+1)+' partido reciente">'+x.result+'</i>').join('')+'</span>':'<span class="team-form-empty">Sin resultados recientes verificados</span>';
       const count={W:stats.filter(x=>x.result==='W').length,D:stats.filter(x=>x.result==='D').length,L:stats.filter(x=>x.result==='L').length};
-      const avg=(key)=>stats.length? (stats.reduce((sum,x)=>sum+x[key],0)/stats.length).toFixed(1).replace('.',','):null;
+      const avg=key=>stats.length?(stats.reduce((sum,x)=>sum+x[key],0)/stats.length).toFixed(1).replace('.',','):null;
       const venueLabel=venue==='home'?'En casa':'Como visitante';
       const venueHtml=stats.length
         ?'<div class="reference-venue"><b>'+venueLabel+'</b><span>'+stats.length+' partidos · '+count.W+'V · '+count.D+'E · '+count.L+'D</span><small>'+avg('gf')+' goles a favor · '+avg('ga')+' en contra de media</small></div>'
         :'<div class="reference-venue"><b>'+venueLabel+'</b><span>Sin muestra verificada</span></div>';
-      return '<article class="team-reference"><h4>'+esc(name)+'</h4><div class="reference-form"><span>Últimos '+(form.length||0)+' partidos</span>'+formHtml+'</div>'+venueHtml+'</article>';
+      return '<article class="team-reference"><h4>'+esc(name)+'</h4><div class="reference-form"><span>Forma reciente</span>'+formHtml+'</div>'+venueHtml+'</article>';
     }
     function matchReferenceMarkup(m,home,away){
       const kickoff=m.fecha_utc;
@@ -1186,6 +1193,7 @@
         }));
         if(request!==predictionRequest)return;
         const historyByLeague=new Map(historyResults);
+        teamReferenceHistory=historyByLeague;teamReferenceAliasMap=aliasMap;
         const leagueBaseline=new Map();
         for(const [code,rows] of historyByLeague){
           leagueBaseline.set(code,{home:average(rows.map(r=>r.home_goals))??1.45,away:average(rows.map(r=>r.away_goals))??1.2});
