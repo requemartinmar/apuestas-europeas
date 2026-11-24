@@ -846,7 +846,7 @@
       fields.push(field);return fields;
     }
     function normalizeTeamKey(value){
-      return String(value??'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+      return String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'');
     }
     async function loadNetherlandsHistory(){
       if(!netherlandsHistoryPromise){
@@ -854,7 +854,7 @@
           const url='https://raw.githubusercontent.com/oladeeayo/open-matchday/master/data/NED_1_eredivisie/results_2627.csv';
           const response=await fetch(url,{cache:'no-store'});
           if(!response.ok)throw new Error('No se pudo cargar el histórico Eredivisie (HTTP '+response.status+').');
-          const lines=(await response.text()).replace(/^\\uFEFF/,'').trim().split(/\\r?\\n/);
+          const lines=(await response.text()).replace(/^\uFEFF/,'').trim().split(/\r?\n/);
           if(lines.length<2)throw new Error('El histórico Eredivisie está vacío.');
           const headers=parseCsvLine(lines[0]);
           const parsed=lines.slice(1).filter(Boolean).map(line=>{
