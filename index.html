@@ -334,7 +334,34 @@
     .team-form-empty{font-size:9px;color:#74869a}
     @media(max-width:760px){.fixture-team-main{gap:6px}.team-crest,.team-crest-fallback{width:27px;height:27px;flex-basis:27px}.team-form i{width:16px;height:16px;font-size:8px}.fixture-team{gap:5px}}
 
-  </style>
+  
+    /* CANCHA · agenda diaria agrupada por competición */
+    .fixture-groups{display:grid;gap:20px}
+    .fixture-group{min-width:0}
+    .fixture-group-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 3px 11px;margin-bottom:9px;border-bottom:1px solid #29384d}
+    .fixture-group-brand{display:flex;align-items:center;gap:11px;min-width:0}
+    .fixture-group-icon{width:34px;height:34px;display:grid;place-items:center;border:1px solid #34465b;border-radius:10px;background:#172438;font-size:16px;flex:0 0 34px}
+    .fixture-group-head h3{margin:0;color:#f0f5fc;font-size:14px;font-weight:800;letter-spacing:-.2px}
+    .fixture-group-head small{display:block;margin-top:2px;color:#8d9db3;font-size:9px;font-weight:750;letter-spacing:1px}
+    .fixture-group-tag{border:1px solid #35475a;border-radius:20px;padding:5px 9px;color:#a9bad0;background:#152236;font-size:9px;font-weight:800;letter-spacing:.7px;white-space:nowrap}
+    .fixture-group .fixture-list{gap:8px}
+    .fixture-group .fixture{grid-template-columns:minmax(0,1fr) 86px minmax(0,1fr);gap:10px 14px;padding:14px 16px;background:linear-gradient(110deg,#111d2d,#101a29);border-color:#26374d}
+    .fixture-group .fixture-score{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:0}
+    .fixture-group .fixture-score strong{font-size:18px;font-weight:850;letter-spacing:-.4px;color:#f3f7fc;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .fixture-group .fixture-score strong.score-live{color:#ff777f}
+    .fixture-group .fixture-score .fixture-kickoff{color:#d2f78d;font-size:20px}
+    .fixture-group .fixture-score small{font-size:8px;font-weight:800;letter-spacing:.8px;color:#8293aa}
+    .fixture-group .fixture-meta{display:flex;align-items:center;justify-content:center;gap:5px;padding-top:7px;border-top:1px solid #ffffff0b;color:#8fa1b8;font-size:9px;letter-spacing:.2px}
+    .fixture-group .fixture-meta span{color:#c9f28a;font-size:12px}
+    @media(max-width:600px){
+      .fixture-groups{gap:17px}.fixture-group-head{padding-bottom:9px;margin-bottom:7px}
+      .fixture-group-head h3{font-size:13px}.fixture-group-icon{width:30px;height:30px;flex-basis:30px}
+      .fixture-group .fixture{grid-template-columns:minmax(0,1fr) 62px minmax(0,1fr);gap:8px 5px;padding:12px 9px}
+      .fixture-group .fixture-score strong{font-size:15px}.fixture-group .fixture-score .fixture-kickoff{font-size:17px}
+      .fixture-group .fixture-team-main{gap:5px}.fixture-group .fixture-team-main>span:not(.team-crest-fallback){font-size:10px}
+      .fixture-group .fixture-meta{font-size:8px}
+    }
+</style>
 </head>
 <body>
   <div class="shell">
@@ -402,6 +429,7 @@
     let teamFormHistory=[];
     const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const dateLabel=v=>v?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Madrid'}).format(new Date(v)):'Hora pendiente';
+    const kickoffTime=v=>v?new Intl.DateTimeFormat('es-ES',{timeZone:'Europe/Madrid',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(v)):'—';
     const dayOf=v=>v?new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'Europe/Madrid'}).format(new Date(v)):'';
     const dateTimeInput=v=>{const d=new Date(v),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`};
     const dayBounds=day=>({from:new Date(`${day}T00:00:00`).toISOString(),to:new Date(`${day}T23:59:59.999`).toISOString()});
@@ -575,10 +603,47 @@
     }
     function render(){
       const rows=matchesForView().sort((a,b)=>new Date(a.fecha_utc)-new Date(b.fecha_utc)),box=$('#fixtures');
-      $('#matchTitle').textContent=state.competition.id==='all'?'Partidos de todas las competiciones':`Partidos de ${state.competition.name}`;
+      $('#matchTitle').textContent=state.competition.id==='all'?'Jornada del día':`Partidos de ${state.competition.name}`;
       $('#day-label').textContent=dayTitle(state.date);$('#match-date').value=state.date;
-      if(!rows.length){setEmpty('No hay partidos en '+state.competition.name,'No se han encontrado encuentros para esta fecha. Prueba otra competición o consulta el calendario de mañana.');$('#connection-hint').innerHTML='<button class="action-btn" type="button" id="empty-tomorrow">Ver mañana</button> <button class="action-btn" type="button" id="empty-all-leagues">Ver todas las ligas</button>';setTimeout(()=>{const t=$('#empty-tomorrow'),a=$('#empty-all-leagues');if(t)t.onclick=()=>{const d=new Date(state.date+'T12:00:00');d.setDate(d.getDate()+1);state.date=localDate(d);loadMatches()};if(a)a.onclick=()=>{state.competition=competitions.all;document.querySelectorAll('.league').forEach(x=>x.classList.toggle('active',x.dataset.league==='all'));loadMatches()}},0);}
-      else{box.className='fixture-list';box.innerHTML=rows.map(m=>{const h=m.equipo_local?.nombre??m.home_name??'Local',a=m.equipo_visitante?.nombre??m.away_name??'Visitante',manual=!!m.local_record;const status=manual?'Registro personal':m.estado==='FINISHED'?'Finalizado':m.estado==='LIVE'?'En directo':m.estado==='POSTPONED'?'Aplazado':'Programado';return `<article class="fixture" data-match="${esc(m.id)}" role="button" tabindex="0" aria-label="Ver análisis de ${esc(h)} contra ${esc(a)}"><div class="fixture-league">${esc(m.competition_name??competitionsById(m.competid_id))}${manual?' · PERSONAL':''}</div><div class="fixture-team"><div class="fixture-team-main">${teamCrest(m.equipo_local,h)}<span>${esc(h)}</span></div>${teamFormMarkup(m.equipo_local_id,m.fecha_utc)}</div><div class="fixture-score">${esc(score(m))}<small>${esc(status)} · ${esc(dateLabel(m.fecha_utc))}</small></div><div class="fixture-team away"><div class="fixture-team-main"><span>${esc(a)}</span>${teamCrest(m.equipo_visitante,a)}</div>${teamFormMarkup(m.equipo_visitante_id,m.fecha_utc)}</div><div class="fixture-meta">Racha: últimos partidos · W victoria · D empate · L derrota · Abrir análisis</div></article>`}).join('');}
+      if(!rows.length){setEmpty('No hay partidos para esta fecha',state.competition.id==='all'?'No hay encuentros registrados en ninguna competición para el día seleccionado.':'No se han encontrado encuentros de '+state.competition.name+' para esta fecha.');$('#connection-hint').innerHTML='<button class="action-btn" type="button" id="empty-tomorrow">Ver mañana</button> <button class="action-btn" type="button" id="empty-all-leagues">Ver todas las ligas</button>';setTimeout(()=>{const t=$('#empty-tomorrow'),a=$('#empty-all-leagues');if(t)t.onclick=()=>{const d=new Date(state.date+'T12:00:00');d.setDate(d.getDate()+1);state.date=localDate(d);loadMatches()};if(a)a.onclick=()=>{state.competition=competitions.all;document.querySelectorAll('.league').forEach(x=>x.classList.toggle('active',x.dataset.league==='all'));loadMatches()}},0);}
+      else{
+        const groups=new Map();
+        for(const m of rows){
+          const name=m.competition_name??competitionsById(m.competid_id);
+          if(!groups.has(name))groups.set(name,[]);
+          groups.get(name).push(m);
+        }
+        const orderedGroups=[...groups.entries()].sort((a,b)=>
+          new Date(a[1][0].fecha_utc)-new Date(b[1][0].fecha_utc)||a[0].localeCompare(b[0],'es')
+        );
+        box.className='fixture-groups';
+        box.innerHTML=orderedGroups.map(([competition,matches])=>{
+          const cards=matches.map(m=>{
+            const h=m.equipo_local?.nombre??m.home_name??'Local';
+            const a=m.equipo_visitante?.nombre??m.away_name??'Visitante';
+            const manual=!!m.local_record;
+            const live=['LIVE','IN_PLAY','PAUSED'].includes(String(m.estado??'').toUpperCase());
+            const finished=m.estado==='FINISHED';
+            const postponed=m.estado==='POSTPONED';
+            const status=manual?'Registro personal':live?'En directo':finished?'Finalizado':postponed?'Aplazado':'Programado';
+            const center=live||finished||manual?score(m):kickoffTime(m.fecha_utc);
+            const centerLabel=live?'EN DIRECTO':finished?'FINALIZADO':postponed?'APLAZADO':'HORA LOCAL';
+            return `<article class="fixture" data-match="${esc(m.id)}" role="button" tabindex="0" aria-label="Ver análisis de ${esc(h)} contra ${esc(a)}">
+              <div class="fixture-team"><div class="fixture-team-main">${teamCrest(m.equipo_local,h)}<span>${esc(h)}</span></div>${teamFormMarkup(m.equipo_local_id,m.fecha_utc)}</div>
+              <div class="fixture-score"><strong class="${live?'score-live':''}">${esc(center)}</strong><small>${esc(centerLabel)}</small></div>
+              <div class="fixture-team away"><div class="fixture-team-main"><span>${esc(a)}</span>${teamCrest(m.equipo_visitante,a)}</div>${teamFormMarkup(m.equipo_visitante_id,m.fecha_utc)}</div>
+              <div class="fixture-meta">${esc(status)} · Ver análisis del partido <span aria-hidden="true">→</span></div>
+            </article>`;
+          }).join('');
+          return `<section class="fixture-group">
+            <header class="fixture-group-head">
+              <div class="fixture-group-brand"><span class="fixture-group-icon">🏆</span><div><h3>${esc(competition)}</h3><small>${matches.length} ${matches.length===1?'PARTIDO':'PARTIDOS'}</small></div></div>
+              <span class="fixture-group-tag">JORNADA</span>
+            </header>
+            <div class="fixture-list">${cards}</div>
+          </section>`;
+        }).join('');
+      }
       const finished=rows.filter(m=>m.estado==='FINISHED'||m.local_record).length;$('#metric-round').textContent=rows.length?String(rows[0].jornada_nombre??rows[0].jornada??'Partidos del día'):'—';$('#metric-finished').textContent=String(finished);$('#metric-teams').textContent=String(new Set(rows.flatMap(m=>[m.equipo_local_id??m.home_name,m.equipo_visitante_id??m.away_name]).filter(Boolean)).size);const last=state.rows.map(m=>m.sincronizado_at).filter(Boolean).sort().at(-1);$('#metric-updated').textContent=last?new Intl.DateTimeFormat('es-ES',{dateStyle:'short',timeStyle:'short'}).format(new Date(last)):'—';
       const stats=rows.map(m=>({m,s:state.manual.find(r=>String(r.linked_match_id)===String(m.id))?.personal_stats??latestStats(m)??m.personal_stats??null}));$('#stats-status').textContent=stats.some(x=>x.s)?`${stats.filter(x=>x.s).length}/${stats.length} con datos`:'Sin estadísticas verificadas';
       $('#stats-body').innerHTML=stats.length?stats.filter(x=>x.s).map(({m,s})=>{const home=m.equipo_local?.nombre??m.home_name??'Local',away=m.equipo_visitante?.nombre??m.away_name??'Visitante';return `<tr><td>${esc(m.competition_name??competitionsById(m.competid_id))}<br>${esc(home)} – ${esc(away)}</td><td>${esc(score(m))}</td><td>${esc(pair(s?.posesion_local,s?.posesion_visitante,'%'))}</td><td>${esc(pair(s?.tiros_totales_local,s?.tiros_totales_visitante))}</td><td>${esc(pair(s?.tiros_puerta_local,s?.tiros_puerta_visitante))}</td><td>${esc(pair(s?.corners_local,s?.corners_visitante))}</td><td>${esc(cardSummary(s))}</td><td>${esc(pair(s?.faltas_local,s?.faltas_visitante))}</td><td>${esc(s?.fuente??'Sin estadísticas')}</td></tr>`}).join(''):'<tr><td colspan="9" style="text-align:center;color:#77889f;padding:22px">Sin partidos para mostrar.</td></tr>';
