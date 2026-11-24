@@ -565,7 +565,7 @@
         '</div>';
     }
     function readStored(){try{return JSON.parse(localStorage.getItem(STORE_KEY)||'[]')}catch{return []}}
-    function saveStored(){localStorage.setItem(STORE_KEY,JSON.stringify(state.manual))}
+    // Los registros locales ya no forman parte de CANCHA.
     function setEmpty(title,description){const b=$('#fixtures');b.className='empty';b.innerHTML=`<div><div class="empty-icon">⚽</div><h3>${esc(title)}</h3><p>${esc(description)}</p><span class="hint">Sin resultados inventados · estadísticas vacías si no hay fuente</span></div>`}
     function dayTitle(day){const today=localDate(new Date());if(day===today)return 'Hoy';const d=new Date(`${day}T12:00:00`);return new Intl.DateTimeFormat('es-ES',{weekday:'long',day:'numeric',month:'long',timeZone:'Europe/Madrid'}).format(d)}
     function matchesForView(){return state.rows.filter(m=>state.competition.id==='all'||m.competid_id===state.competition.id)}
@@ -653,7 +653,7 @@
         }).join('');
       }
       const finished=rows.filter(m=>m.estado==='FINISHED'||m.local_record).length;$('#metric-round').textContent=rows.length?String(rows[0].jornada_nombre??rows[0].jornada??'Partidos del día'):'—';$('#metric-finished').textContent=String(finished);$('#metric-teams').textContent=String(new Set(rows.flatMap(m=>[m.equipo_local_id??m.home_name,m.equipo_visitante_id??m.away_name]).filter(Boolean)).size);const last=state.rows.map(m=>m.sincronizado_at).filter(Boolean).sort().at(-1);$('#metric-updated').textContent=last?new Intl.DateTimeFormat('es-ES',{dateStyle:'short',timeStyle:'short'}).format(new Date(last)):'—';
-      const stats=rows.map(m=>({m,s:state.manual.find(r=>String(r.linked_match_id)===String(m.id))?.personal_stats??latestStats(m)??m.personal_stats??null}));$('#stats-status').textContent=stats.some(x=>x.s)?`${stats.filter(x=>x.s).length}/${stats.length} con datos`:'Sin estadísticas verificadas';
+      const stats=rows.map(m=>({m,s:latestStats(m)??null}));$('#stats-status').textContent=stats.some(x=>x.s)?`${stats.filter(x=>x.s).length}/${stats.length} con datos`:'Sin estadísticas verificadas';
       $('#stats-body').innerHTML=stats.length?stats.filter(x=>x.s).map(({m,s})=>{const home=m.equipo_local?.nombre??m.home_name??'Local',away=m.equipo_visitante?.nombre??m.away_name??'Visitante';return `<tr><td>${esc(m.competition_name??competitionsById(m.competid_id))}<br>${esc(home)} – ${esc(away)}</td><td>${esc(score(m))}</td><td>${esc(pair(s?.posesion_local,s?.posesion_visitante,'%'))}</td><td>${esc(pair(s?.tiros_totales_local,s?.tiros_totales_visitante))}</td><td>${esc(pair(s?.tiros_puerta_local,s?.tiros_puerta_visitante))}</td><td>${esc(pair(s?.corners_local,s?.corners_visitante))}</td><td>${esc(cardSummary(s))}</td><td>${esc(pair(s?.faltas_local,s?.faltas_visitante))}</td><td>${esc(s?.fuente??'Sin estadísticas')}</td></tr>`}).join(''):'<tr><td colspan="9" style="text-align:center;color:#77889f;padding:22px">Sin partidos para mostrar.</td></tr>';
       $('#sync-status').textContent=last?'Datos sincronizados':'Sin sincronización reciente';
     }
@@ -1246,13 +1246,13 @@
     // La captura manual y los registros locales se han retirado de CANCHA.
     document.querySelectorAll('.league').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.league').forEach(x=>x.classList.remove('active'));btn.classList.add('active');state.competition=competitions[btn.dataset.league];loadMatches()}));
     $('#match-date').value=state.date;$('#match-date').addEventListener('change',e=>{state.date=e.target.value||localDate(new Date());loadMatches()});$('#day-today').addEventListener('click',()=>{state.date=localDate(new Date());loadMatches()});for(const [id,n] of [['day-prev',-1],['day-next',1]])$(`#${id}`).addEventListener('click',()=>{const d=new Date(`${state.date}T12:00:00`);d.setDate(d.getDate()+n);state.date=localDate(d);loadMatches()});
-    $('#entry-competition').innerHTML=Object.values(competitions).filter(c=>c.id!=='all').map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');$('#entry-date').value=`${state.date}T12:00`;
+    
     $('#fixtures').addEventListener('click',e=>{const card=e.target.closest('.fixture[data-match]');if(card)openMatchDetail(card.dataset.match)});
     $('#fixtures').addEventListener('keydown',e=>{const card=e.target.closest('.fixture[data-match]');if(card&&(e.key==='Enter'||e.key===' ')){e.preventDefault();openMatchDetail(card.dataset.match)}});
     $('#match-detail-close').addEventListener('click',()=>{$('#match-detail-modal').hidden=true});
     $('#match-detail-modal').addEventListener('click',e=>{if(e.target.id==='match-detail-modal')e.currentTarget.hidden=true});
     document.addEventListener('keydown',e=>{if(e.key==='Escape')$('#match-detail-modal').hidden=true});
-    $('#match-picker').addEventListener('change',pickMatch);$('#save-entry').addEventListener('click',saveEntry);$('#clear-entry').addEventListener('click',clearForm);$('#saved-records').addEventListener('click',e=>{const b=e.target.closest('.delete-entry');if(!b)return;state.manual=state.manual.filter(m=>m.id!==b.dataset.id);saveStored();render()});
+    
     $('#refresh-bookmaker-odds').addEventListener('click',()=>loadBookmakerOdds(bookmakerOddsMatches,true));$('#load-historical-odds').addEventListener('click',loadHistoricalOdds);
     const navLinks=[...document.querySelectorAll('.product-nav-link')];
     navLinks.forEach(link=>link.addEventListener('click',()=>{navLinks.forEach(x=>x.classList.remove('is-active'));link.classList.add('is-active')}));
