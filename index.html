@@ -613,8 +613,17 @@
           if(!groups.has(name))groups.set(name,[]);
           groups.get(name).push(m);
         }
+        const competitionPriority=name=>{
+          const n=String(name??'').toLocaleLowerCase('es');
+          if(n.includes('champions'))return 0;
+          if(n.includes('europa league'))return 1;
+          if(n.includes('conference'))return 2;
+          return 10;
+        };
         const orderedGroups=[...groups.entries()].sort((a,b)=>
-          new Date(a[1][0].fecha_utc)-new Date(b[1][0].fecha_utc)||a[0].localeCompare(b[0],'es')
+          competitionPriority(a[0])-competitionPriority(b[0])||
+          new Date(a[1][0].fecha_utc)-new Date(b[1][0].fecha_utc)||
+          a[0].localeCompare(b[0],'es')
         );
         box.className='fixture-groups';
         box.innerHTML=orderedGroups.map(([competition,matches])=>{
