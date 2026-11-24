@@ -614,7 +614,7 @@
     }
     function teamReferenceMarkup(name,teamId,kickoff,venue){
       const alias=teamReferenceAliasMap.get(String(teamId));
-      const histRows=alias?(teamReferenceHistory.get(alias.hist_league)??[]).filter(r=>r.match_date<String(kickoff??'').slice(0,10)&&(r.home_team===alias.hist_team||r.away_team===alias.hist_team)).sort((a,b)=>String(b.match_date).localeCompare(String(a.match_date))):[];
+      const histRows=alias?(teamReferenceHistory.get(alias.hist_league)??[]).filter(r=>r.home_goals!=null&&r.away_goals!=null&&r.match_date<String(kickoff??'').slice(0,10)&&(r.home_team===alias.hist_team||r.away_team===alias.hist_team)).sort((a,b)=>String(b.match_date).localeCompare(String(a.match_date))):[];
       const resultOf=(row,team)=>{
         const isHome=row.home_team===team;
         const gf=Number(isHome?row.home_goals:row.away_goals),ga=Number(isHome?row.away_goals:row.home_goals);
