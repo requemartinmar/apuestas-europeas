@@ -332,6 +332,8 @@
     .team-form .form-d{background:#34404c;color:#d3dce5;border:1px solid #566474}
     .team-form .form-l{background:#512c35;color:#ffb2b2;border:1px solid #87434c}
     .team-form-empty{font-size:9px;color:#74869a}
+    .match-analysis-card h4{margin:16px 0 8px;color:#cbd8e8;font-size:13px}.match-analysis-score,.match-analysis-probs,.match-analysis-team-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0}.match-analysis-score>div,.match-analysis-probs>span,.match-analysis-team{padding:11px;border:1px solid #2b3b50;border-radius:11px;background:#111c2b}.match-analysis-score small,.match-analysis-team small{display:block;color:#9aabc0;font-size:11px}.match-analysis-score strong{display:block;margin-top:5px;font-size:20px}.match-analysis-probs{grid-template-columns:repeat(3,minmax(0,1fr))}.match-analysis-probs span{display:flex;justify-content:space-between;gap:5px;align-items:center;font-size:12px}.match-analysis-probs b{color:#fff;font-size:15px}.match-analysis-team-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.match-analysis-team h4{margin:0 0 5px}.match-analysis-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:9px}.match-analysis-stats span{font-size:11px;color:#9aabc0}.match-analysis-stats b{display:block;color:#fff;font-size:14px}.match-analysis-best{margin:12px 0;padding:12px;border-radius:10px;background:#142b2a;color:#d9f7e8;font-size:13px}
+    @media(max-width:600px){.match-analysis-probs{grid-template-columns:1fr}.match-analysis-team-grid{grid-template-columns:1fr}.match-analysis-score{grid-template-columns:1fr 1fr}}
     .team-reference-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
     .team-reference{min-width:0;padding:14px;border:1px solid #29394b;border-radius:12px;background:#101b29}
     .team-reference h4{margin:0 0 12px;font-size:14px;color:#edf4fc}
@@ -437,6 +439,7 @@
     const state={competition:competitions.all,rows:[],date:localDate(new Date()),season:null,demo:false};
     let teamFormHistory=[];
     let teamReferenceHistory=new Map(),teamReferenceAliasMap=new Map();
+    let teamPredictionModels=new Map();
     const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const dateLabel=v=>v?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Madrid'}).format(new Date(v)):'Hora pendiente';
     const kickoffTime=v=>v?new Intl.DateTimeFormat('es-ES',{timeZone:'Europe/Madrid',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(v)):'—';
@@ -569,6 +572,7 @@
       $('#match-detail-body').innerHTML=
         '<div class="match-detail-score"><div class="match-detail-team">'+esc(home)+'</div><div class="match-detail-result">'+esc(score(m))+'</div><div class="match-detail-team">'+esc(away)+'</div></div>'+
         '<div class="match-detail-grid">'+
+          matchAnalysisMarkup(m,home,away)+
           matchReferenceMarkup(m,home,away)+
           '<section class="match-detail-card"><h3>⚽ Goles y goleadores</h3><div class="match-goals">'+goalHtml+'</div></section>'+
           '<section class="match-detail-card"><h3>📊 Estadísticas del encuentro</h3>'+statHtml+'<div class="match-source">Fuente: '+esc(source)+'</div></section>'+
@@ -644,6 +648,22 @@
         teamReferenceMarkup(home,m.equipo_local_id,kickoff,'home')+
         teamReferenceMarkup(away,m.equipo_visitante_id,kickoff,'away')+
         '</div></section>';
+    }
+    function matchAnalysisMarkup(match,homeName,awayName){
+      const model=teamPredictionModels.get(String(match.id));
+      if(!model)return '<section class="match-detail-card match-analysis-card" style="grid-column:1/-1"><h3>🎯 Análisis estadístico CANCHA</h3><p class="match-muted">Sin muestra histórica suficiente o sin equivalencia de los dos equipos. No se calculan ni muestran porcentajes.</p></section>';
+      const pct=v=>Number.isFinite(Number(v))?Number(v).toFixed(1).replace('.',',')+'%':'—';
+      const avg=v=>v==null||!Number.isFinite(Number(v))?'—':Number(v).toFixed(1).replace('.',',');
+      const bestMarket=[['Más de 1,5 goles',model.metrics.over_1_5_pct],['Más de 2,5 goles',model.metrics.over_2_5_pct],['Ambos marcan',model.metrics.btts_pct]].filter(x=>Number.isFinite(Number(x[1]))).sort((a,b)=>b[1]-a[1])[0];
+      const teamStats=(label,team)=>'<div class="match-analysis-team"><h4>'+esc(label)+'</h4><small>Muestra: '+team.n+' partidos · '+team.venueN+' en '+(label===homeName?'casa':'condición visitante')+'</small><div class="match-analysis-stats"><span>Goles a favor <b>'+avg(team.gf)+'</b></span><span>Goles en contra <b>'+avg(team.ga)+'</b></span><span>Remates a puerta <b>'+avg(team.sot)+'</b></span><span>Córners <b>'+avg(team.corners)+'</b></span><span>Tarjetas <b>'+avg(team.cards)+'</b></span></div></div>';
+      return '<section class="match-detail-card match-analysis-card" style="grid-column:1/-1"><h3>🎯 Análisis estadístico CANCHA</h3>'+
+        '<div class="match-analysis-score"><div><small>Marcador más probable</small><strong>'+esc(model.scoreline)+'</strong></div><div><small>Goles esperados</small><strong>'+avg(model.lambdaHome)+' – '+avg(model.lambdaAway)+'</strong></div></div>'+
+        '<h4>📊 Probabilidad 1X2</h4><div class="match-analysis-probs"><span>🏠 Local <b>'+pct(model.metrics.home_win_pct)+'</b></span><span>🤝 Empate <b>'+pct(model.metrics.draw_pct)+'</b></span><span>✈️ Visitante <b>'+pct(model.metrics.away_win_pct)+'</b></span></div>'+
+        '<h4>⚽ Mercados de goles</h4><div class="match-analysis-probs"><span>Más de 1,5 <b>'+pct(model.metrics.over_1_5_pct)+'</b></span><span>Más de 2,5 <b>'+pct(model.metrics.over_2_5_pct)+'</b></span><span>Ambos marcan <b>'+pct(model.metrics.btts_pct)+'</b></span></div>'+
+        '<h4>📈 Media reciente por partido</h4><div class="match-analysis-team-grid">'+teamStats(homeName,model.home)+teamStats(awayName,model.away)+'</div>'+
+        '<p class="player-explain">Muestra de '+model.home.n+' partidos del equipo local y '+model.away.n+' del visitante. Remates totales no disponibles en el histórico consultado; no se estiman ni se inventan. Las estadísticas individuales solo se muestran cuando la fuente las proporciona.</p>'+
+        (bestMarket?'<p class="match-analysis-best">⭐ Pronóstico más probable entre estos mercados: <b>'+esc(bestMarket[0])+' · '+pct(bestMarket[1])+'</b></p>':'')+
+        '<p class="player-explain">Estimaciones Poisson orientativas, no probabilidades calibradas ni garantías de resultado.</p></section>';
     }
     function teamCrest(team,name){
       const url=team?.escudo_url;
@@ -1199,6 +1219,7 @@
           leagueBaseline.set(code,{home:average(rows.map(r=>r.home_goals))??1.45,away:average(rows.map(r=>r.away_goals))??1.2});
         }
         const analysedAll=providerMatches.map(m=>({m,model:matchModel(m,historyByLeague,aliasMap,leagueBaseline)}));
+        teamPredictionModels=new Map(analysedAll.filter(x=>x.model).map(x=>[String(x.m.id),x.model]));
         const analysedById=new Map(analysedAll.map(x=>[String(x.m.id),x]));
         const analysed=(matches??[]).map(m=>analysedById.get(String(m.id))??({m,model:null}));
         saveCanchaSnapshots(analysedAll).catch(error=>console.warn('No se pudieron guardar los snapshots de CANCHA:',error));
