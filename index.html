@@ -1228,7 +1228,7 @@
       if(!season||!ids.length){state.nextRoundMatches=[];root.innerHTML='<div class="next-round-empty">No hay competiciones activas con temporada disponible.</div>';count.textContent='Sin datos';return;}
       const from=new Date(),until=new Date(from.getTime()+45*24*60*60*1000);
       const {data,error}=await db.from('partidos').select('id,competid_id,jornada,jornada_nombre,fecha_utc,equipo_local_id,equipo_visitante_id,estado,equipo_local:equipos!partidos_equipo_local_id_fkey(nombre),equipo_visitante:equipos!partidos_equipo_visitante_id_fkey(nombre)').eq('temporada',season).in('competid_id',ids).eq('estado','SCHEDULED').gte('fecha_utc',from.toISOString()).lt('fecha_utc',until.toISOString()).order('fecha_utc',{ascending:true}).limit(1500);
-      if(error)throw error;
+      if(error){state.nextRoundMatches=[];root.innerHTML='<div class="next-round-empty">No se pudo consultar el calendario de próximas jornadas.</div>';count.textContent='No disponible';console.warn('Próximas jornadas:',error);return;}
       const rows=(data??[]).map(m=>({...m,competition_name:competitionsById(m.competid_id)}));
       const byCompetition=new Map();
       for(const m of rows){
@@ -1260,7 +1260,7 @@
         if(cached&&cached.date===state.date&&cached.competition===state.competition.id&&Array.isArray(cached.rows)){
           state.rows=cached.rows;
           await loadTeamFormHistory(state.rows);
-          loadPredictions(state.rows);
+          loadPredictions(state.rows,state.nextRoundMatches);
           badge.className='source-pill error';
           badge.innerHTML='<i class="dot"></i> Última carga guardada';
           msg.textContent='Supabase no ha respondido. Mostrando '+state.rows.length+' partidos guardados el '+new Date(cached.savedAt).toLocaleString('es-ES')+'.';
