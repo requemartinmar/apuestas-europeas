@@ -832,6 +832,50 @@
       const valid=values.filter(v=>v!=null&&Number.isFinite(Number(v))).map(Number);
       return valid.length?valid.reduce((a,b)=>a+b,0)/valid.length:null;
     }
+    let netherlandsHistoryPromise=null;
+    function parseCsvLine(line){
+      const fields=[];let field='',quoted=false;
+      for(let i=0;i<line.length;i++){
+        const ch=line[i];
+        if(ch==='"'){
+          if(quoted&&line[i+1]==='"'){field+='"';i++;}
+          else quoted=!quoted;
+        }else if(ch===','&&!quoted){fields.push(field);field='';}
+        else field+=ch;
+      }
+      fields.push(field);return fields;
+    }
+    function normalizeTeamKey(value){
+      return String(value??'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+    }
+    async function loadNetherlandsHistory(){
+      if(!netherlandsHistoryPromise){
+        netherlandsHistoryPromise=(async()=>{
+          const url='https://raw.githubusercontent.com/oladeeayo/open-matchday/master/data/NED_1_eredivisie/results_2627.csv';
+          const response=await fetch(url,{cache:'no-store'});
+          if(!response.ok)throw new Error('No se pudo cargar el histórico Eredivisie (HTTP '+response.status+').');
+          const lines=(await response.text()).replace(/^\\uFEFF/,'').trim().split(/\\r?\\n/);
+          if(lines.length<2)throw new Error('El histórico Eredivisie está vacío.');
+          const headers=parseCsvLine(lines[0]);
+          const parsed=lines.slice(1).filter(Boolean).map(line=>{
+            const values=parseCsvLine(line),row=Object.fromEntries(headers.map((key,index)=>[key,values[index]??'']));
+            const num=value=>value===''||value==null?null:Number(value);
+            return {
+              league_code:'N1',league_name:'Eredivisie',season:'2026/27',match_date:row.date,
+              home_team:row.home,away_team:row.away,home_goals:num(row.ft_home),away_goals:num(row.ft_away),
+              home_shots:num(row.home_shots),away_shots:num(row.away_shots),
+              home_shots_on_target:num(row.home_target),away_shots_on_target:num(row.away_target),
+              home_corners:num(row.home_corners),away_corners:num(row.away_corners),
+              home_yellow:num(row.home_yellow),away_yellow:num(row.away_yellow),
+              home_red:num(row.home_red),away_red:num(row.away_red),source:'open-matchday'
+            };
+          }).filter(row=>row.match_date&&row.home_team&&row.away_team&&row.home_goals!=null&&row.away_goals!=null);
+          if(!parsed.length)throw new Error('El histórico Eredivisie no contiene resultados válidos.');
+          return parsed.sort((a,b)=>String(b.match_date).localeCompare(String(a.match_date)));
+        })().catch(error=>{netherlandsHistoryPromise=null;throw error;});
+      }
+      return netherlandsHistoryPromise;
+    }
     function teamHistory(rows,team,venue,cutoff){
       const all=rows.filter(r=>r.match_date<cutoff&&(r.home_team===team||r.away_team===team)).slice(0,12);
       const atVenue=all.filter(r=>venue==='home'?r.home_team===team:r.away_team===team).slice(0,8);
@@ -1208,15 +1252,34 @@
         let aliases=[];if(teamIds.length){const {data,error}=await db.from('equipo_alias').select('equipo_id,hist_league,hist_team').in('equipo_id',teamIds);if(error)throw error;aliases=data??[];}
         if(request!==predictionRequest)return;
         const aliasMap=new Map((aliases??[]).map(a=>[String(a.equipo_id),a]));
-        const leagueCodes=[...new Set((aliases??[]).map(a=>a.hist_league).filter(Boolean))];
+        let netherlandsRows=null;
+        const matchTeams=providerMatches.flatMap(m=>[
+          {id:String(m.equipo_local_id),name:m.equipo_local?.nombre??m.home_name??''},
+          {id:String(m.equipo_visitante_id),name:m.equipo_visitante?.nombre??m.away_name??''}
+        ]);
+        const missingTeams=matchTeams.filter(team=>!aliasMap.has(team.id));
+        if(missingTeams.length){
+          try{
+            const candidateRows=await loadNetherlandsHistory();
+            const dutchNames=new Map();
+            candidateRows.forEach(row=>{dutchNames.set(normalizeTeamKey(row.home_team),row.home_team);dutchNames.set(normalizeTeamKey(row.away_team),row.away_team);});
+            for(const team of missingTeams){
+              const histTeam=dutchNames.get(normalizeTeamKey(team.name));
+              if(histTeam)aliasMap.set(team.id,{equipo_id:team.id,hist_league:'N1',hist_team:histTeam});
+            }
+            if([...aliasMap.values()].some(alias=>alias.hist_league==='N1'))netherlandsRows=candidateRows;
+          }catch(error){console.warn('Histórico Eredivisie no disponible:',error);}
+        }
+        const leagueCodes=[...new Set([...aliasMap.values()].map(a=>a.hist_league).filter(Boolean))];
         const latestDate=localDate(new Date(Date.now()+24*60*60*1000));
-        const historyResults=await Promise.all(leagueCodes.map(async code=>{
+        const historyResults=await Promise.all(leagueCodes.filter(code=>code!=='N1').map(async code=>{
           const {data,error}=await db.from('historical_matches')
             .select('league_code,match_date,home_team,away_team,home_goals,away_goals,home_shots,away_shots,home_shots_on_target,away_shots_on_target,home_corners,away_corners,home_yellow,away_yellow,home_red,away_red')
             .eq('league_code',code).lt('match_date',latestDate).order('match_date',{ascending:false}).limit(1500);
           if(error)throw error;
           return [code,data??[]];
         }));
+        if(netherlandsRows)historyResults.push(['N1',netherlandsRows]);
         if(request!==predictionRequest)return;
         const historyByLeague=new Map(historyResults);
         teamReferenceHistory=historyByLeague;teamReferenceAliasMap=aliasMap;
