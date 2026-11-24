@@ -655,7 +655,7 @@
       const pct=v=>Number.isFinite(Number(v))?Number(v).toFixed(1).replace('.',',')+'%':'—';
       const avg=v=>v==null||!Number.isFinite(Number(v))?'—':Number(v).toFixed(1).replace('.',',');
       const bestMarket=[['Más de 1,5 goles',model.metrics.over_1_5_pct],['Más de 2,5 goles',model.metrics.over_2_5_pct],['Ambos marcan',model.metrics.btts_pct]].filter(x=>Number.isFinite(Number(x[1]))).sort((a,b)=>b[1]-a[1])[0];
-      const teamStats=(label,team)=>'<div class="match-analysis-team"><h4>'+esc(label)+'</h4><small>Muestra: '+team.n+' partidos · '+team.venueN+' en '+(label===homeName?'casa':'condición visitante')+'</small><div class="match-analysis-stats"><span>Goles a favor <b>'+avg(team.gf)+'</b></span><span>Goles en contra <b>'+avg(team.ga)+'</b></span><span>Remates a puerta <b>'+avg(team.sot)+'</b></span><span>Córners <b>'+avg(team.corners)+'</b></span><span>Tarjetas <b>'+avg(team.cards)+'</b></span></div></div>';
+      const teamStats=(label,team)=>'<div class="match-analysis-team"><h4>'+esc(label)+'</h4><small>Muestra: '+team.n+' partidos · '+team.venueN+' en '+(label===homeName?'casa':'condición visitante')+'</small><div class="match-analysis-stats"><span>Goles a favor <b>'+avg(team.gf)+'</b></span><span>Goles en contra <b>'+avg(team.ga)+'</b></span><span>Remates totales <b>'+avg(team.shots)+'</b></span><span>Remates a puerta <b>'+avg(team.sot)+'</b></span><span>Córners <b>'+avg(team.corners)+'</b></span><span>Tarjetas <b>'+avg(team.cards)+'</b></span></div></div>';
       return '<section class="match-detail-card match-analysis-card" style="grid-column:1/-1"><h3>🎯 Análisis estadístico CANCHA</h3>'+
         '<div class="match-analysis-score"><div><small>Marcador más probable</small><strong>'+esc(model.scoreline)+'</strong></div><div><small>Goles esperados</small><strong>'+avg(model.lambdaHome)+' – '+avg(model.lambdaAway)+'</strong></div></div>'+
         '<h4>📊 Probabilidad 1X2</h4><div class="match-analysis-probs"><span>🏠 Local <b>'+pct(model.metrics.home_win_pct)+'</b></span><span>🤝 Empate <b>'+pct(model.metrics.draw_pct)+'</b></span><span>✈️ Visitante <b>'+pct(model.metrics.away_win_pct)+'</b></span></div>'+
@@ -838,6 +838,7 @@
         const home=r.home_team===team;
         if(key==='gf')return home?r.home_goals:r.away_goals;
         if(key==='ga')return home?r.away_goals:r.home_goals;
+        if(key==='shots')return home?r.home_shots:r.away_shots;
         if(key==='corners')return home?r.home_corners:r.away_corners;
         if(key==='sot')return home?r.home_shots_on_target:r.away_shots_on_target;
         if(key==='cards')return home?(r.home_yellow==null&&r.home_red==null?null:Number(r.home_yellow??0)+Number(r.home_red??0)):(r.away_yellow==null&&r.away_red==null?null:Number(r.away_yellow??0)+Number(r.away_red??0));
@@ -847,7 +848,7 @@
         const overall=average(values(all,key)),specific=average(values(atVenue,key));
         return specific!=null&&atVenue.length>=3&&overall!=null?specific*.7+overall*.3:specific??overall;
       };
-      return {n:all.length,venueN:atVenue.length,gf:metric('gf'),ga:metric('ga'),corners:metric('corners'),sot:metric('sot'),cards:metric('cards')};
+      return {n:all.length,venueN:atVenue.length,gf:metric('gf'),ga:metric('ga'),shots:metric('shots'),corners:metric('corners'),sot:metric('sot'),cards:metric('cards')};
     }
     function matchModel(match,rows,aliasMap,leagueBaseline){
       const homeAlias=aliasMap.get(String(match.equipo_local_id)),awayAlias=aliasMap.get(String(match.equipo_visitante_id));
@@ -1206,7 +1207,7 @@
         const latestDate=localDate(new Date(Date.now()+24*60*60*1000));
         const historyResults=await Promise.all(leagueCodes.map(async code=>{
           const {data,error}=await db.from('historical_matches')
-            .select('league_code,match_date,home_team,away_team,home_goals,away_goals,home_shots_on_target,away_shots_on_target,home_corners,away_corners,home_yellow,away_yellow,home_red,away_red')
+            .select('league_code,match_date,home_team,away_team,home_goals,away_goals,home_shots,away_shots,home_shots_on_target,away_shots_on_target,home_corners,away_corners,home_yellow,away_yellow,home_red,away_red')
             .eq('league_code',code).lt('match_date',latestDate).order('match_date',{ascending:false}).limit(1500);
           if(error)throw error;
           return [code,data??[]];
