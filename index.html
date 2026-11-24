@@ -1160,7 +1160,7 @@
         // No se priorizan ligas ni equipos por nombre; solo cuenta la puntuación del modelo.
         const ranked=future.slice(0,3);
         if(!ranked.length){
-          topRoot.innerHTML='<div class="top3-empty">No hay próximos partidos con histórico individual suficiente. LaLiga, Premier League, Bundesliga y Serie A disponen de datos por equipo; otras competiciones necesitan su propio histórico y equivalencias.</div>';
+          topRoot.innerHTML='<div class="top3-empty">No hay partidos de esta fecha con histórico individual suficiente para entrar en el TOP 3. No se rellenará con encuentros de otras jornadas.</div>';
           $('#top3-status').textContent='Sin muestra suficiente';
         }else{
           topRoot.innerHTML='<div class="top3-grid">'+ranked.map((x,i)=>{
