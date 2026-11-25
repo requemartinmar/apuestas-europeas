@@ -10,14 +10,14 @@ export function selectBestCompleteMarketOffers(
   expectedSelectionKeys: readonly string[],
 ): OddsOffer[] | null {
   if (!Array.isArray(offers) || offers.length === 0 ||
-      !Array.isArray(expectedSelectionKeys) ||
-      !isExactMarketCoverage(
-        offers[0]?.marketKey,
-        offers[0]?.line,
-        expectedSelectionKeys,
-      )) return null;
+      !Array.isArray(expectedSelectionKeys)) return null;
 
   const first = offers[0];
+  if (!first || !isExactMarketCoverage(
+    first.marketKey,
+    first.line,
+    expectedSelectionKeys,
+  )) return null;
   if (
     !first.eventId || !first.marketKey || !first.period ||
     typeof first.eventId !== "string" ||
