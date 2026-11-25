@@ -7,6 +7,7 @@ import { calculateSurebet } from "./calculate-surebet.ts";
 import { calculateStakes } from "./calculate-stakes.ts";
 import { selectBestCompleteMarketOffers } from "./match-markets.ts";
 import { validateOpportunity } from "./validate-opportunity.ts";
+import { evaluateSurebet } from "./evaluate-surebet.ts";
 import type { OddsOffer } from "./types.ts";
 
 const NOW = 1_800_000_000_000;
@@ -26,10 +27,19 @@ const offer = (
   capturedAtMs: NOW - 1_000,
   ...overrides,
 });
+const total = (
+  selectionKey: string,
+  odds: number,
+  overrides: Partial<OddsOffer> = {},
+) => offer(selectionKey, odds, {
+  marketKey: "totals",
+  line: 2.5,
+  ...overrides,
+});
 
-Deno.test("detecta arbitraje de dos resultados", () => {
+Deno.test("calcula arbitraje matemático de dos resultados", () => {
   const result = calculateSurebet(
-    [offer("home", 2.1), offer("away", 2.05)],
+    [total("over", 2.1), total("under", 2.05)],
     100,
   );
   if (!result) throw new Error("Se esperaba oportunidad");
@@ -37,7 +47,7 @@ Deno.test("detecta arbitraje de dos resultados", () => {
   assertAlmostEquals(result.theoreticalProfitPercent, 3.73494, 0.001);
 });
 
-Deno.test("detecta arbitraje 1X2 con cobertura de tres resultados", () => {
+Deno.test("calcula arbitraje 1X2 con tres resultados", () => {
   const result = calculateSurebet([
     offer("home", 2.6),
     offer("draw", 3.7),
@@ -47,24 +57,19 @@ Deno.test("detecta arbitraje 1X2 con cobertura de tres resultados", () => {
   assertAlmostEquals(result.inverseOddsSum, 0.97747, 0.00002);
 });
 
-Deno.test("rechaza mercado sin arbitraje y cuotas inválidas", () => {
-  assertEquals(
-    calculateSurebet([offer("home", 1.9), offer("away", 1.9)], 100),
-    null,
-  );
-  assertEquals(
-    calculateSurebet([offer("home", 2), offer("away", 1)], 100),
-    null,
-  );
-  assertEquals(
-    calculateSurebet([offer("home", 2), offer("home", 3)], 100),
-    null,
-  );
+Deno.test("rechaza mercado sin arbitraje, cuotas inválidas y beneficio infinito", () => {
+  assertEquals(calculateSurebet([total("over", 1.9), total("under", 1.9)], 100), null);
+  assertEquals(calculateSurebet([total("over", 2), total("under", 1)], 100), null);
+  assertEquals(calculateSurebet([total("over", 2), total("over", 3)], 100), null);
+  assertEquals(calculateSurebet([
+    total("over", Number.MAX_VALUE),
+    total("under", Number.MAX_VALUE),
+  ], 100), null);
 });
 
 Deno.test("reparte stake en céntimos y conserva el presupuesto", () => {
   const allocations = calculateStakes(
-    [offer("home", 2.1), offer("away", 2.05)],
+    [total("over", 2.1), total("under", 2.05)],
     100,
   );
   if (!allocations) throw new Error("Se esperaba reparto");
@@ -77,39 +82,24 @@ Deno.test("reparte stake en céntimos y conserva el presupuesto", () => {
   assertEquals(allocations.every((item) => item.payout > 100), true);
 });
 
-Deno.test("rechaza si el redondeo o el presupuesto no permite beneficio garantizado", () => {
-  assertEquals(
-    calculateStakes([offer("home", 2), offer("away", 2)], 100),
-    null,
-  );
-  assertEquals(
-    calculateStakes([offer("home", 2.1), offer("away", 2.05)], 0.01),
-    null,
-  );
+Deno.test("rechaza si el redondeo o el presupuesto no garantiza beneficio", () => {
+  assertEquals(calculateStakes([total("over", 2), total("under", 2)], 100), null);
+  assertEquals(calculateStakes([total("over", 2.1), total("under", 2.05)], 0.01), null);
 });
 
 Deno.test("rechaza importes con fracciones de céntimo o fuera del rango seguro", () => {
-  assertEquals(
-    calculateStakes([offer("home", 2.1), offer("away", 2.05)], 10.001),
-    null,
-  );
-  assertEquals(
-    calculateStakes(
-      [offer("home", 2.1), offer("away", 2.05)],
-      Number.MAX_SAFE_INTEGER,
-    ),
-    null,
-  );
+  assertEquals(calculateStakes([total("over", 2.1), total("under", 2.05)], 10.001), null);
+  assertEquals(calculateStakes(
+    [total("over", 2.1), total("under", 2.05)],
+    Number.MAX_SAFE_INTEGER,
+  ), null);
 });
 
 Deno.test("rechaza cuotas y casas inválidas en el reparto", () => {
-  assertEquals(
-    calculateStakes([
-      offer("home", 2.1),
-      offer("away", 2.05, { bookmaker: "   " }),
-    ], 100),
-    null,
-  );
+  assertEquals(calculateStakes([
+    total("over", 2.1),
+    total("under", 2.05, { bookmaker: "   " }),
+  ], 100), null);
 });
 
 Deno.test("selecciona la mejor cuota por resultado sin mezclar eventos", () => {
@@ -121,25 +111,36 @@ Deno.test("selecciona la mejor cuota por resultado sin mezclar eventos", () => {
     offer("away", 99, { eventId: "otro-evento" }),
   ], ["home", "draw", "away"]);
   if (!selected) throw new Error("Se esperaba mercado completo");
-  assertEquals(
-    selected.find((item) => item.selectionKey === "home")?.odds,
-    2.2,
-  );
+  assertEquals(selected.find((item) => item.selectionKey === "home")?.odds, 2.2);
   assertEquals(selected.length, 3);
 });
 
-Deno.test("no completa un mercado si falta un resultado", () => {
+Deno.test("no completa un 1X2 si falta empate aunque el llamante lo omita", () => {
+  const incomplete = [offer("home", 2.2), offer("away", 2.1)];
   assertEquals(
-    selectBestCompleteMarketOffers([offer("home", 2.2), offer("away", 2.1)], [
-      "home",
-      "draw",
-      "away",
-    ]),
+    selectBestCompleteMarketOffers(incomplete, ["home", "away"]),
     null,
+  );
+  assertEquals(
+    validateOpportunity(incomplete, ["home", "away"], {
+      nowMs: NOW,
+      maxAgeMs: 30_000,
+    }).status,
+    "REJECTED",
   );
 });
 
-Deno.test("valida un mercado completo y reciente", () => {
+Deno.test("no completa totales si falta over o under", () => {
+  assertEquals(
+    validateOpportunity([total("over", 2.1)], ["over", "under"], {
+      nowMs: NOW,
+      maxAgeMs: 30_000,
+    }).status,
+    "REJECTED",
+  );
+});
+
+Deno.test("valida mercado 1X2 completo y reciente", () => {
   const result = validateOpportunity(
     [offer("home", 2.1), offer("draw", 3.5), offer("away", 3.8)],
     ["home", "draw", "away"],
@@ -148,88 +149,84 @@ Deno.test("valida un mercado completo y reciente", () => {
   assertEquals(result.status, "VALIDATED");
 });
 
-Deno.test("rechaza mezcla de mercados y caduca cuotas antiguas", () => {
-  const mixed = validateOpportunity(
-    [offer("home", 2.1), offer("away", 2.2, { period: "1H" })],
-    ["home", "away"],
-    { nowMs: NOW, maxAgeMs: 30_000 },
-  );
+Deno.test("rechaza mezcla de periodo y caduca cuotas antiguas en totales", () => {
+  const mixed = validateOpportunity([
+    total("over", 2.1),
+    total("under", 2.2, { period: "1H" }),
+  ], ["over", "under"], { nowMs: NOW, maxAgeMs: 30_000 });
   assertEquals(mixed.status, "REJECTED");
 
-  const expired = validateOpportunity(
-    [offer("home", 2.1, { capturedAtMs: NOW - 60_000 }), offer("away", 2.2)],
-    ["home", "away"],
-    { nowMs: NOW, maxAgeMs: 30_000 },
-  );
+  const expired = validateOpportunity([
+    total("over", 2.1, { capturedAtMs: NOW - 60_000 }),
+    total("under", 2.2),
+  ], ["over", "under"], { nowMs: NOW, maxAgeMs: 30_000 });
   assertEquals(expired.status, "EXPIRED");
   assertNotEquals(expired.reason, undefined);
 });
 
 Deno.test("rechaza maxFutureSkewMs negativo, NaN e infinito", () => {
   for (const maxFutureSkewMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
-    const result = validateOpportunity(
-      [offer("home", 2.1), offer("away", 2.2)],
-      ["home", "away"],
-      { nowMs: NOW, maxAgeMs: 30_000, maxFutureSkewMs },
-    );
+    const result = validateOpportunity([
+      total("over", 2.1), total("under", 2.2),
+    ], ["over", "under"], {
+      nowMs: NOW, maxAgeMs: 30_000, maxFutureSkewMs,
+    });
     assertEquals(result.status, "REJECTED");
   }
 });
 
 Deno.test("rechaza identificadores, resultados y casas vacíos", () => {
-  assertEquals(
-    validateOpportunity(
-      [
-        offer("home", 2.1, { eventId: "   " }),
-        offer("away", 2.2, { eventId: "   " }),
-      ],
-      ["home", "away"],
-      { nowMs: NOW, maxAgeMs: 30_000 },
-    ).status,
-    "REJECTED",
-  );
+  assertEquals(validateOpportunity([
+    offer("home", 2.1, { eventId: "   " }),
+    offer("draw", 2.2),
+    offer("away", 2.3),
+  ], ["home", "draw", "away"], { nowMs: NOW, maxAgeMs: 30_000 }).status, "REJECTED");
 
-  assertEquals(
-    validateOpportunity(
-      [offer("home", 2.1), offer("away", 2.2, { bookmaker: "  " })],
-      ["home", "away"],
-      { nowMs: NOW, maxAgeMs: 30_000 },
-    ).status,
-    "REJECTED",
-  );
+  assertEquals(validateOpportunity([
+    total("over", 2.1),
+    total("under", 2.2, { bookmaker: "  " }),
+  ], ["over", "under"], { nowMs: NOW, maxAgeMs: 30_000 }).status, "REJECTED");
+});
 
+Deno.test("rechaza líneas inválidas y prioriza datos inválidos sobre caducidad", () => {
+  assertEquals(validateOpportunity([
+    total("over", 2.1, { line: Number.NaN }),
+    total("under", 2.2, { line: Number.NaN }),
+  ], ["over", "under"], { nowMs: NOW, maxAgeMs: 30_000 }).status, "REJECTED");
+
+  assertEquals(validateOpportunity([
+    total("over", 2.1, { capturedAtMs: NOW - 60_000 }),
+    total("under", 1, { capturedAtMs: NOW - 60_000 }),
+  ], ["over", "under"], { nowMs: NOW, maxAgeMs: 30_000 }).status, "REJECTED");
+});
+
+Deno.test("el flujo completo rechaza 1X2 incompleto y calcula uno completo", () => {
+  const bad = evaluateSurebet([
+    offer("home", 2.6), offer("away", 3.1),
+  ], 100, { nowMs: NOW, maxAgeMs: 30_000 });
+  assertEquals(bad.validation.status, "REJECTED");
+  assertEquals(bad.calculation, null);
+  assertEquals(bad.allocations, null);
+
+  const good = evaluateSurebet([
+    offer("home", 2.6), offer("draw", 3.7), offer("away", 3.1),
+  ], 100, { nowMs: NOW, maxAgeMs: 30_000 });
+  assertEquals(good.validation.status, "VALIDATED");
+  if (!good.calculation || !good.allocations) {
+    throw new Error("Se esperaba cálculo y reparto");
+  }
   assertEquals(
-    validateOpportunity(
-      [offer("home", 2.1), offer("away", 2.2)],
-      ["home", "  "],
-      { nowMs: NOW, maxAgeMs: 30_000 },
-    ).status,
-    "REJECTED",
+    good.allocations.reduce((sum, item) => sum + Math.round(item.stake * 100), 0),
+    10_000,
   );
 });
 
-Deno.test("rechaza línea no finita y prioriza datos inválidos sobre caducidad", () => {
-  assertEquals(
-    validateOpportunity(
-      [
-        offer("home", 2.1, { line: Number.NaN }),
-        offer("away", 2.2, { line: Number.NaN }),
-      ],
-      ["home", "away"],
-      { nowMs: NOW, maxAgeMs: 30_000 },
-    ).status,
-    "REJECTED",
-  );
-
-  assertEquals(
-    validateOpportunity(
-      [
-        offer("home", 2.1, { capturedAtMs: NOW - 60_000 }),
-        offer("away", 1, { capturedAtMs: NOW - 60_000 }),
-      ],
-      ["home", "away"],
-      { nowMs: NOW, maxAgeMs: 30_000 },
-    ).status,
-    "REJECTED",
-  );
+Deno.test("el resultado validado no comparte referencias mutables con la entrada", () => {
+  const original = [offer("home", 2.1), offer("draw", 3.5), offer("away", 3.8)];
+  const result = validateOpportunity(original, ["home", "draw", "away"], {
+    nowMs: NOW, maxAgeMs: 30_000,
+  });
+  assertEquals(result.status, "VALIDATED");
+  original[0].odds = 1.01;
+  assertEquals(result.offers[0].odds, 2.1);
 });
