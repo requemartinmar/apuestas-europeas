@@ -1,20 +1,30 @@
 # Surebet Engine (aislado)
 
-Motor matemático independiente para detectar arbitraje entre cuotas. En esta
-fase no se conecta a proveedores, Telegram, tablas Supabase ni a
-`quant-telegram`.
+Motor matemático independiente para detectar arbitraje entre cuotas. No se conecta
+a proveedores, Telegram, tablas Supabase ni a `quant-telegram`.
 
-## Módulos
+## Flujo recomendado
 
-- `types.ts`: contratos de entrada y salida.
-- `match-markets.ts`: mejor cuota por resultado, solo dentro de una misma
-  identidad canónica de evento/mercado/periodo/línea.
-- `validate-opportunity.ts`: cobertura completa, consistencia, cuotas válidas y
-  caducidad.
-- `calculate-surebet.ts`: detección matemática.
-- `calculate-stakes.ts`: reparto en céntimos y comprobación del peor retorno
-  tras redondear.
-- `calculate-surebet.test.ts`: pruebas deterministas.
+Usar `evaluateSurebet()` como punto de entrada único:
+
+1. Obtiene de las reglas internas los resultados obligatorios del mercado.
+2. Selecciona la mejor cuota de cada resultado sin mezclar evento, mercado, periodo o línea.
+3. Valida frescura, identidad y entradas.
+4. Calcula el arbitraje.
+5. Reparte el presupuesto en céntimos y comprueba el peor retorno redondeado.
+
+No se debe usar una lista de resultados suministrada por el consumidor como autoridad
+para declarar completo un mercado. `calculateSurebet()` y `calculateStakes()`
+son primitivas matemáticas; por sí solas no prueban cobertura de mercado.
+
+## Mercados con cobertura definida
+
+- `1x2`: `home`, `draw`, `away`; línea `null`.
+- `totals`: `over`, `under`; línea numérica obligatoria.
+- `btts`: `yes`, `no`; línea `null`.
+
+Cualquier otro mercado se rechaza hasta que se añada explícitamente su definición
+y sus pruebas. No se adivinan resultados para mercados desconocidos.
 
 ## Matemática
 
@@ -26,9 +36,9 @@ Para un presupuesto (T), el reparto ideal es:
 
 `stake_i = T * (1 / o_i) / sum(1 / o_j)`
 
-El reparto real se redondea a céntimos y se vuelve a comprobar el peor retorno.
-Si el peor retorno no supera el presupuesto, no se devuelve una asignación
-rentable.
+El reparto real se redondea a céntimos mediante mayores restos y se vuelve a
+comprobar el peor retorno después de redondear. Si no supera el presupuesto,
+no se devuelve una asignación rentable.
 
 ## Ejecutar pruebas
 
@@ -36,22 +46,13 @@ Desde la raíz del repositorio:
 
 ```powershell
 deno test .\supabase\functions\surebet-engine\calculate-surebet.test.ts
-deno check .\supabase\functions\surebet-engine\calculate-surebet.test.ts
+deno check .\supabase\functions\surebet-engine\mod.ts
 ```
 
-## Límites deliberados de esta fase
+## Límites
 
 - No consulta ni ejecuta apuestas en casas.
-- No aplica comisiones de exchange, límites, impuestos, anulaciones ni reglas
-  particulares.
-- No hace matching difuso de nombres. `eventId` debe venir de una
-  fuente/crosswalk fiable.
-- No usa cachés de probabilidades o estadísticas como fuente de cuotas.
-- `VALIDATED` solo significa que la estructura y frescura de los datos pasan las
-  comprobaciones locales; no significa que una casa haya aceptado una apuesta ni
-  garantiza beneficio ejecutable.
-- No se ha integrado ni desplegado en Supabase.
-
-Antes de conectar proveedores habrá que añadir adaptadores, tratamiento de
-comisiones/límites y una verificación de cuotas inmediatamente anterior a
-cualquier posible ejecución.
+- No aplica comisiones de exchange, límites, impuestos, anulaciones ni reglas particulares.
+- No hace matching difuso de nombres. `eventId` debe proceder de una fuente/crosswalk fiable.
+- `VALIDATED` solo acredita estructura y frescura local; no significa que una casa acepte la apuesta ni garantiza beneficio ejecutable.
+- Antes de conectar proveedores hacen falta adaptadores, reglas de liquidación y una verificación de cuotas inmediatamente anterior a cualquier posible ejecución.
